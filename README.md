@@ -44,8 +44,8 @@ CUDA-compatible GPU (recommended for deep learning)
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/trading-system.git
-cd trading-system
+git clone https://github.com/EpicSanDev/EVIL2ROOT_AI-main
+cd EVIL2ROOT_AI-main
 ```
 
 2. Create and activate a virtual environment:
