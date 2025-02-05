@@ -40,8 +40,4 @@ def clean_data(file_path, output_path):
     numeric_data.to_csv(output_path)
     logging.info(f"Cleaned data saved to {output_path}")
 
-# Example usage:
-input_file = 'market_data.csv'
-output_file = 'market_data_cleaned_auto.csv'
-
-clean_data(input_file, output_file)
+# Function is imported and used by run.py

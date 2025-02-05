@@ -1,9 +1,34 @@
+import os
 from telegram import Bot
-from config.config import TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 class TelegramBot:
     def __init__(self):
-        self.bot = Bot(token=TELEGRAM_TOKEN)
+        token = os.getenv('TELEGRAM_BOT_TOKEN')
+        self.chat_id = os.getenv('TELEGRAM_CHAT_ID')
+        self.enabled = False
+        
+        if token and self.chat_id:
+            try:
+                self.bot = Bot(token=token)
+                self.enabled = True
+            except Exception as e:
+                print(f"Failed to initialize Telegram bot (notifications disabled): {e}")
+                self.bot = None
+        else:
+            print("Telegram bot not configured (notifications disabled)")
+            self.bot = None
 
     async def send_message(self, message):
-        await self.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
+        if not self.enabled:
+            print(f"[Notification]: {message}")
+            return
+            
+        try:
+            await self.bot.send_message(chat_id=self.chat_id, text=message)
+        except Exception as e:
+            print(f"[Notification]: {message}")
+            self.enabled = False  # Disable on error

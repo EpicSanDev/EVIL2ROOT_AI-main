@@ -140,7 +140,7 @@ class TradingSystem:
                     start=Config.START_DATE,
                     end=datetime.now().strftime('%Y-%m-%d')
                 )
-                data.to_csv(Config.MARKET_DATA)
+                data.to_csv(str(Config.MARKET_DATA))
                 logger.info("Market data downloaded successfully")
             
             # Clean the data
@@ -192,10 +192,13 @@ class TradingSystem:
                 logger.error("Failed to initialize. Exiting.")
                 return
             
-            # Send start message
-            await self.telegram_bot.send_message(
-                "Trading system starting..."
-            )
+            try:
+                # Send start message (non-fatal if it fails)
+                await self.telegram_bot.send_message(
+                    "Trading system starting..."
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send start message (continuing anyway): {e}")
             
             # Train models
             backtest_results = await self.train_models()
@@ -212,13 +215,19 @@ class TradingSystem:
                 
         except Exception as e:
             logger.error(f"Fatal error in main loop: {e}")
-            await self.telegram_bot.send_message(
-                f"Trading system error: {str(e)}"
-            )
+            try:
+                await self.telegram_bot.send_message(
+                    f"Trading system error: {str(e)}"
+                )
+            except:
+                pass  # Ignore Telegram errors
         finally:
-            await self.telegram_bot.send_message(
-                "Trading system shutting down..."
-            )
+            try:
+                await self.telegram_bot.send_message(
+                    "Trading system shutting down..."
+                )
+            except:
+                pass  # Ignore Telegram errors
 
 async def main():
     """Main entry point"""
