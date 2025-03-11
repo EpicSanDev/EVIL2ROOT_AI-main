@@ -25,6 +25,9 @@ yfinance>=0.2.18
 pylint>=2.17.4
 pytest>=7.3.1
 pytest-cov>=4.1.0
+python-telegram-bot>=20.6
+asyncio>=3.4.3
+schedule>=1.2.0
 
 # AI/ML Dependencies
 tensorflow==2.15.0
@@ -50,10 +53,12 @@ ccxt>=3.0.69
 statsmodels>=0.14.0
 alpha_vantage>=2.3.1
 backtrader>=1.9.76
+# talib>=0.4.0  # Commenté car difficile à installer, nécessite une installation séparée
 
 # Monitoring & Visualization - OPTIMIZED
 plotly==5.14.1  # Version exacte pour stabilité
 dash==2.10.0    # Version exacte pour stabilité
+prometheus_client>=0.16.0  # Pour la surveillance avec Prometheus
 # streamlit>=1.22.0       # Commenté car pas utilisé directement dans l'app mais par Plotly
 # bokeh>=3.1.1            # Commenté car pas utilisé directement dans l'app
 

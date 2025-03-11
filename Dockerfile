@@ -33,7 +33,11 @@ RUN grep -v "plotly\|dash" requirements.txt > requirements-filtered.txt \
     && pip install --no-cache-dir -r requirements-filtered.txt
 
 # Install additional dependencies for analysis bot
-RUN pip install --no-cache-dir python-telegram-bot==20.6 asyncio==3.4.3 schedule==1.2.0 openai
+# Ces dépendances sont maintenant ajoutées au requirements.txt principal
+# RUN pip install --no-cache-dir python-telegram-bot==20.6 asyncio==3.4.3 schedule==1.2.0 openai
+
+# Assurez-vous que prometheus-client soit bien installé
+RUN pip install --no-cache-dir prometheus_client>=0.16.0
 
 # Copy application code
 COPY . .
