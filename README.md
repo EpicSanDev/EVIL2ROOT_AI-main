@@ -389,9 +389,6 @@ Ce logiciel est fourni à des fins éducatives uniquement. Le trading comporte d
 
 ## 📬 Contact
 
-- Email: evil2root@protonmail.com
-- Twitter: [@Evil2Root](https://twitter.com/Evil2Root)
-- Site Web: [https://evil2root.com](https://evil2root.com)
 
 ---
 
