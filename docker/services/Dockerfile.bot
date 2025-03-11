@@ -23,8 +23,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN mkdir -p /app/logs /app/data /app/saved_models
 
 # Install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements-essential.txt .
+RUN pip install --no-cache-dir -r requirements-essential.txt
 
 # Copy entrypoint script
 COPY docker/services/entrypoint-bot.sh /entrypoint.sh

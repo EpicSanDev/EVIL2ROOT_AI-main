@@ -17,15 +17,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Ollama
-RUN curl -fsSL https://ollama.com/install.sh | sh
-
 # Create necessary directories
 RUN mkdir -p /app/logs /app/saved_models
 
 # Install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements-essential.txt .
+RUN pip install --no-cache-dir -r requirements-essential.txt
 
 # Copy entrypoint script
 COPY docker/services/entrypoint-ai.sh /entrypoint.sh
