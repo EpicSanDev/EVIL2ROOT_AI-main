@@ -49,6 +49,7 @@ python-binance>=1.0.17
 ccxt>=3.0.69
 statsmodels>=0.14.0
 alpha_vantage>=2.3.1
+backtrader>=1.9.76
 
 # Monitoring & Visualization - OPTIMIZED
 plotly==5.14.1  # Version exacte pour stabilité
