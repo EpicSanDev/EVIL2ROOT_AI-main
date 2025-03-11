@@ -1,0 +1,474 @@
+{% extends "base.html" %}
+
+{% block title %}Advanced Dashboard - Trading Bot{% endblock %}
+
+{% block styles %}
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+<style>
+    .card {
+        transition: transform 0.3s, box-shadow 0.3s;
+        margin-bottom: 20px;
+    }
+    .card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+    }
+    .stats-card {
+        border-left: 4px solid #36a2eb;
+    }
+    .positive {
+        color: #4caf50;
+    }
+    .negative {
+        color: #f44336;
+    }
+    .chart-container {
+        position: relative;
+        height: 300px;
+        width: 100%;
+    }
+    .small-chart-container {
+        position: relative;
+        height: 200px;
+        width: 100%;
+    }
+    .nav-link.active {
+        font-weight: bold;
+        border-bottom: 2px solid #36a2eb;
+    }
+    .dashboard-header {
+        background: linear-gradient(135deg, #2193b0, #6dd5ed);
+        color: white;
+        padding: 20px 0;
+        margin-bottom: 30px;
+        border-radius: 0 0 10px 10px;
+    }
+    .status-indicator {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 5px;
+    }
+    .status-active {
+        background-color: #4caf50;
+    }
+    .status-inactive {
+        background-color: #f44336;
+    }
+    .status-warning {
+        background-color: #ff9800;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-header text-center">
+    <h1><i class="bi bi-graph-up"></i> Advanced Trading Dashboard</h1>
+    <p class="lead">Real-time monitoring and analytics for AI-powered trading</p>
+    
+    <div class="container">
+        <div class="row">
+            <div class="col-md-3">
+                <div class="card bg-transparent border-0 text-white">
+                    <div class="card-body">
+                        <h6>Current Balance</h6>
+                        <h3>${{ portfolio_stats.current_balance|default('100,000.00', true)|format_currency }}</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-transparent border-0 text-white">
+                    <div class="card-body">
+                        <h6>Open Positions</h6>
+                        <h3>{{ portfolio_stats.open_positions|default(0) }}</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-transparent border-0 text-white">
+                    <div class="card-body">
+                        <h6>Total P&L</h6>
+                        <h3 class="{% if portfolio_stats.total_pnl > 0 %}positive{% elif portfolio_stats.total_pnl < 0 %}negative{% endif %}">
+                            ${{ portfolio_stats.total_pnl|default('0.00', true)|format_currency }}
+                        </h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-transparent border-0 text-white">
+                    <div class="card-body">
+                        <h6>Bot Status</h6>
+                        <h3>
+                            <span class="status-indicator {% if bot_status == 'running' %}status-active{% elif bot_status == 'stopped' %}status-inactive{% else %}status-warning{% endif %}"></span>
+                            {{ bot_status|default('Stopped')|capitalize }}
+                        </h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title"><i class="bi bi-graph-up-arrow"></i> Portfolio Performance</h5>
+                    <div class="btn-group">
+                        <button type="button" class="btn btn-sm btn-outline-primary time-range" data-range="7d">7D</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary time-range active" data-range="1m">1M</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary time-range" data-range="3m">3M</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary time-range" data-range="1y">1Y</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary time-range" data-range="all">All</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="chart-container">
+                        <canvas id="equity-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title"><i class="bi bi-pie-chart"></i> Trade Distribution</h5>
+                </div>
+                <div class="card-body">
+                    <div class="chart-container">
+                        <canvas id="trade-distribution-chart"></canvas>
+                    </div>
+                    <div class="row text-center mt-3">
+                        <div class="col-md-4">
+                            <h6>Win Rate</h6>
+                            <h4>{{ (portfolio_stats.win_rate * 100)|default(0)|round(1) }}%</h4>
+                        </div>
+                        <div class="col-md-4">
+                            <h6>Profit Factor</h6>
+                            <h4>{{ portfolio_stats.profit_factor|default(0)|round(2) }}</h4>
+                        </div>
+                        <div class="col-md-4">
+                            <h6>Total Trades</h6>
+                            <h4>{{ portfolio_stats.total_trades|default(0) }}</h4>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title"><i class="bi bi-bar-chart"></i> Symbol Performance</h5>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="sortByPnl" checked>
+                        <label class="form-check-label" for="sortByPnl">Sort by P&L</label>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="chart-container">
+                        <canvas id="symbol-performance-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title"><i class="bi bi-graph-up"></i> Price Predictions</h5>
+                    <select id="symbol-selector" class="form-select form-select-sm" style="width: auto;">
+                        {% for symbol in symbols %}
+                        <option value="{{ symbol }}">{{ symbol }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="card-body">
+                    <div class="chart-container">
+                        <canvas id="price-prediction-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title"><i class="bi bi-activity"></i> Market Sentiment</h5>
+                </div>
+                <div class="card-body">
+                    <div class="chart-container">
+                        <canvas id="sentiment-timeline"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title"><i class="bi bi-exclamation-triangle"></i> Risk Assessment</h5>
+                </div>
+                <div class="card-body">
+                    <div class="small-chart-container">
+                        <canvas id="risk-heatmap"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title"><i class="bi bi-list-check"></i> Recent Trading Signals</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Symbol</th>
+                                    <th>Direction</th>
+                                    <th>Confidence</th>
+                                    <th>Source</th>
+                                    <th>Time</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for signal in signals %}
+                                <tr>
+                                    <td><strong>{{ signal.symbol }}</strong></td>
+                                    <td>
+                                        {% if signal.direction == 'buy' %}
+                                        <span class="badge bg-success">Buy</span>
+                                        {% elif signal.direction == 'sell' %}
+                                        <span class="badge bg-danger">Sell</span>
+                                        {% else %}
+                                        <span class="badge bg-secondary">{{ signal.direction|capitalize }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <div class="progress" style="height: 5px;">
+                                            <div class="progress-bar 
+                                                {% if signal.confidence < 0.4 %}bg-warning
+                                                {% elif signal.confidence < 0.7 %}bg-info
+                                                {% else %}bg-success{% endif %}" 
+                                                role="progressbar" 
+                                                style="width: {{ (signal.confidence * 100)|round }}%">
+                                            </div>
+                                        </div>
+                                        {{ (signal.confidence * 100)|round }}%
+                                    </td>
+                                    <td>{{ signal.source|capitalize }}</td>
+                                    <td>{{ signal.timestamp|format_timestamp }}</td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-primary view-signal" data-signal-id="{{ loop.index }}">
+                                            <i class="bi bi-eye"></i> View
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                                {% if not signals %}
+                                <tr>
+                                    <td colspan="6" class="text-center">No recent trading signals</td>
+                                </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Signal Details Modal -->
+<div class="modal fade" id="signalModal" tabindex="-1" aria-labelledby="signalModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="signalModalLabel">Signal Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="signalModalBody">
+                <!-- Signal details will be loaded here -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="executeSignalBtn">Execute Trade</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+<script>
+    // Set up time range button event handlers
+    document.querySelectorAll('.time-range').forEach(btn => {
+        btn.addEventListener('click', function() {
+            // Update active button
+            document.querySelectorAll('.time-range').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            
+            // Fetch data with new time range
+            const range = this.dataset.range;
+            fetch(`/api/performance/equity?range=${range}`)
+                .then(response => response.json())
+                .then(data => {
+                    window.equityChart.data.labels = data.dates;
+                    window.equityChart.data.datasets[0].data = data.equity;
+                    window.equityChart.data.datasets[1].data = data.balance;
+                    window.equityChart.data.datasets[2].data = data.drawdown;
+                    window.equityChart.update();
+                });
+        });
+    });
+    
+    // Set up signal view buttons
+    document.querySelectorAll('.view-signal').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const signalId = this.dataset.signalId;
+            fetch(`/api/signals/${signalId}`)
+                .then(response => response.json())
+                .then(data => {
+                    let modalContent = `
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <h5>${data.symbol} - ${data.direction.toUpperCase()}</h5>
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <p><strong>Confidence:</strong> ${(data.confidence * 100).toFixed(2)}%</p>
+                                        <p><strong>Source:</strong> ${data.source}</p>
+                                        <p><strong>Timestamp:</strong> ${new Date(data.timestamp).toLocaleString()}</p>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <p><strong>Risk Score:</strong> ${data.risk_score ? (data.risk_score * 100).toFixed(2) + '%' : 'N/A'}</p>
+                                        <p><strong>Predicted Change:</strong> ${data.predicted_change ? data.predicted_change.toFixed(2) + '%' : 'N/A'}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Add additional signal details if available
+                    if (data.sentiment) {
+                        modalContent += `
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <h6>Sentiment Analysis</h6>
+                                </div>
+                                <div class="card-body">
+                                    <p><strong>Sentiment Score:</strong> ${data.sentiment.sentiment_score.toFixed(2)}</p>
+                                    <p><strong>Sources:</strong> ${data.sentiment.sources.join(', ')}</p>
+                                    <p><strong>Keywords:</strong> ${data.sentiment.keywords.join(', ')}</p>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    // Add prediction details if available
+                    if (data.predictions) {
+                        modalContent += `
+                            <div class="card">
+                                <div class="card-header">
+                                    <h6>Price Predictions</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="table-responsive">
+                                        <table class="table table-sm">
+                                            <thead>
+                                                <tr>
+                                                    <th>Model</th>
+                                                    <th>Current Price</th>
+                                                    <th>Predicted Price</th>
+                                                    <th>Change</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr>
+                                                    <td>Standard Model</td>
+                                                    <td>$${data.predictions.current_price.toFixed(2)}</td>
+                                                    <td>$${data.predictions.standard_prediction.toFixed(2)}</td>
+                                                    <td class="${data.predictions.standard_change >= 0 ? 'positive' : 'negative'}">
+                                                        ${data.predictions.standard_change.toFixed(2)}%
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td>Transformer</td>
+                                                    <td>$${data.predictions.current_price.toFixed(2)}</td>
+                                                    <td>$${data.predictions.transformer_prediction.toFixed(2)}</td>
+                                                    <td class="${data.predictions.transformer_change >= 0 ? 'positive' : 'negative'}">
+                                                        ${data.predictions.transformer_change.toFixed(2)}%
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    document.getElementById('signalModalBody').innerHTML = modalContent;
+                    
+                    // Update execute button based on signal
+                    const executeBtn = document.getElementById('executeSignalBtn');
+                    executeBtn.dataset.signalId = signalId;
+                    executeBtn.dataset.symbol = data.symbol;
+                    executeBtn.dataset.direction = data.direction;
+                    
+                    // Show the modal
+                    const modal = new bootstrap.Modal(document.getElementById('signalModal'));
+                    modal.show();
+                });
+        });
+    });
+    
+    // Execute signal button handler
+    document.getElementById('executeSignalBtn').addEventListener('click', function() {
+        const signalId = this.dataset.signalId;
+        const symbol = this.dataset.symbol;
+        const direction = this.dataset.direction;
+        
+        fetch('/api/execute_trade', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                signal_id: signalId,
+                symbol: symbol,
+                direction: direction
+            }),
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert(`Trade executed successfully! Order ID: ${data.order_id}`);
+                // Close the modal
+                bootstrap.Modal.getInstance(document.getElementById('signalModal')).hide();
+                // Refresh the page to show the new position
+                setTimeout(() => window.location.reload(), 1000);
+            } else {
+                alert(`Error executing trade: ${data.error}`);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error executing trade. See console for details.');
+        });
+    });
+</script>
+{% endblock %} 

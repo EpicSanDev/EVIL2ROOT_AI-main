@@ -1,106 +1,103 @@
+version: '3.8'
+
 services:
-  trading-bot:
-    build:
-      context: .
-      dockerfile: docker/services/Dockerfile.bot
-    restart: unless-stopped
+  web:
+    build: .
+    image: evil2root/trading-bot:latest
+    container_name: trading-bot-web
+    ports:
+      - "5000:5000"
+      - "9090:9090"  # Port for Prometheus metrics
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
       - ./saved_models:/app/saved_models
-    env_file: .env
-    environment:
-      - DB_HOST=database
-      - REDIS_HOST=redis
+    env_file:
+      - .env
     depends_on:
-      - database
+      - db
       - redis
-      - ai-validation
-    healthcheck:
-      test: ["CMD", "python", "-c", "import os; os.path.exists('/app/logs/trading_bot.log')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
-
-  ai-validation:
-    build:
-      context: .
-      dockerfile: docker/services/Dockerfile.ai
     restart: unless-stopped
-    volumes:
-      - ./saved_models:/app/saved_models
-      - ./logs:/app/logs
-    env_file: .env
-    environment:
-      - REDIS_HOST=redis
-    depends_on:
-      - redis
-    healthcheck:
-      test: ["CMD", "python", "-c", "import redis, os; redis.Redis(host=os.environ.get('REDIS_HOST', 'redis')).ping()"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
 
-  web-ui:
-    build:
-      context: .
-      dockerfile: docker/services/Dockerfile.web
+  db:
+    image: postgres:13
+    container_name: trading-bot-db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
+    ports:
+      - "5432:5432"
     restart: unless-stopped
-    ports:
-      - "5001:5000"
-    volumes:
-      - ./logs:/app/logs
-    env_file: .env
-    environment:
-      - DB_HOST=database
-      - REDIS_HOST=redis
-      - FLASK_APP=app:create_app
-      - FLASK_ENV=production
-    depends_on:
-      - database
-      - redis
-      - trading-bot
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-
-  database:
-    image: postgres:14-alpine
-    restart: always
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./docker/init-db:/docker-entrypoint-initdb.d
-    environment:
-      - POSTGRES_USER=${DB_USER:-trader}
-      - POSTGRES_PASSWORD=${DB_PASSWORD:-secure_password}
-      - POSTGRES_DB=${DB_NAME:-trading_db}
-    ports:
-      - "5434:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-trader} -d ${DB_NAME:-trading_db}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   redis:
-    image: redis:alpine
-    restart: always
+    image: redis:6
+    container_name: trading-bot-redis
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    restart: unless-stopped
+
+  adminer:
+    image: adminer
+    container_name: trading-bot-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: trading-bot-prometheus
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    ports:
+      - "9091:9090"
+    restart: unless-stopped
+    depends_on:
+      - web
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: trading-bot-grafana
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+  # Optional: Uncomment to enable TensorBoard for model visualization
+  # tensorboard:
+  #   build: .
+  #   image: evil2root/trading-bot:latest
+  #   container_name: trading-bot-tensorboard
+  #   command: tensorboard --logdir=/app/logs/tensorboard --host=0.0.0.0 --port=6006
+  #   volumes:
+  #     - ./logs:/app/logs
+  #   ports:
+  #     - "6006:6006"
+  #   restart: unless-stopped
 
 volumes:
   postgres_data:
   redis_data:
+  prometheus_data:
+  grafana_data:

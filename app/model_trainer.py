@@ -25,6 +25,7 @@ from app.models.tp_sl_management import TpSlManagementModel
 from app.models.indicator_management import IndicatorManagementModel
 from app.models.sentiment_analysis import SentimentAnalyzer
 from app.models.rl_trading import train_rl_agent
+from app.models.transformer_model import FinancialTransformer  # Import the new model
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -51,8 +52,12 @@ class ModelTrainer:
         self.model_metrics = {}
         self.best_params = {}
         
+        # New model types
+        self.use_transformer = os.environ.get('USE_TRANSFORMER_MODEL', 'true').lower() == 'true'
+        
         logger.info(f"ModelTrainer initialized with optimization settings: trials={self.max_optimization_trials}, timeout={self.optimization_timeout}s")
         logger.info(f"GPU acceleration {'enabled' if self.use_gpu else 'disabled'}")
+        logger.info(f"Transformer model {'enabled' if self.use_transformer else 'disabled'}")
     
     async def train_all_models(self, data_manager):
         """
@@ -135,7 +140,7 @@ class ModelTrainer:
         except Exception as e:
             logger.error(f"Error training TP/SL model for {symbol}: {e}")
         
-        # 4. Train indicator management model
+        # 4. Train indicator model
         logger.info(f"Optimizing indicator model for {symbol}...")
         try:
             indicator_model = await self._optimize_indicator_model(train_data, test_data, symbol)
@@ -143,6 +148,12 @@ class ModelTrainer:
             logger.info(f"Indicator model for {symbol} trained successfully")
         except Exception as e:
             logger.error(f"Error training indicator model for {symbol}: {e}")
+        
+        # Train transformer model if enabled
+        if self.use_transformer:
+            transformer_model = await self.train_transformer_model(data, symbol)
+            models['transformer'] = transformer_model
+            logger.info(f"Trained transformer model for {symbol}")
         
         # Save all model metrics for this symbol
         metrics_file = os.path.join(self.models_dir, f"{symbol}_metrics.json")
@@ -573,3 +584,44 @@ class ModelTrainer:
         joblib.dump(best_params, params_path)
         
         return final_model, metrics
+
+    async def train_transformer_model(self, data, symbol):
+        """Train a transformer model for time series prediction."""
+        logger.info(f"Training transformer model for {symbol}")
+        
+        try:
+            # Create model with default hyperparameters
+            # In a real scenario, these could be optimized
+            model = FinancialTransformer(
+                input_sequence_length=30,
+                forecast_horizon=5,
+                d_model=64,
+                num_heads=4,
+                dropout_rate=0.1,
+                num_transformer_blocks=2
+            )
+            
+            # Train the model
+            history = model.train(
+                data=data,
+                target_column='Close',
+                epochs=50,
+                batch_size=32,
+                validation_split=0.2
+            )
+            
+            # Save the model
+            model_path = os.path.join(self.models_dir, f"{symbol}_transformer_model")
+            scaler_path = os.path.join(self.models_dir, f"{symbol}_transformer_scalers.pkl")
+            model.save(model_path, scaler_path)
+            
+            # Log training metrics
+            final_loss = history.history['loss'][-1]
+            final_val_loss = history.history['val_loss'][-1]
+            logger.info(f"Transformer model for {symbol} - Final loss: {final_loss:.4f}, Val loss: {final_val_loss:.4f}")
+            
+            return model
+            
+        except Exception as e:
+            logger.error(f"Error training transformer model for {symbol}: {e}")
+            return None

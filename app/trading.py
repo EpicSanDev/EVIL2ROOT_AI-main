@@ -72,8 +72,8 @@ def get_db_connection():
 class DataManager:
     def __init__(self, symbols: List[str], start_date: Optional[str] = None, end_date: Optional[str] = None):
         self.symbols = symbols
-        self.start_date = start_date or "2010-01-01"
-        self.end_date = end_date or datetime.now().strftime("%Y-%m-%d")
+        self.start_date = start_date or (datetime.now() - timedelta(days=60)).strftime('%Y-%m-%d')
+        self.end_date = end_date or datetime.now().strftime('%Y-%m-%d')
         self.data = {}
         self.initialize_data()
         logging.info(f"DataManager initialized with symbols: {symbols}")
@@ -183,22 +183,110 @@ class DataManager:
                 logging.error(f"Error in data update loop: {e}")
                 time.sleep(60)  # Wait before retrying
 
+    def get_latest_price(self, symbol: str) -> float:
+        """Get the latest price for a symbol"""
+        try:
+            if symbol in self.data and not self.data[symbol].empty:
+                return self.data[symbol]['Close'].iloc[-1]
+            else:
+                # Try to fetch the latest price from yfinance directly
+                ticker = yf.Ticker(symbol)
+                data = ticker.history(period="1d")
+                if not data.empty:
+                    return data['Close'].iloc[-1]
+                else:
+                    raise ValueError(f"No data available for {symbol}")
+        except Exception as e:
+            logging.error(f"Error getting latest price for {symbol}: {e}")
+            return 0.0
+
 class TradingBot:
-    def __init__(self, initial_balance: float = 100000):
-        self.price_model = PricePredictionModel()
-        self.risk_model = RiskManagementModel()
-        self.tp_sl_model = TpSlManagementModel()
-        self.indicator_model = IndicatorManagementModel()
-        self.sentiment_analyzer = SentimentAnalyzer()
-        self.rl_model = None
-        self.telegram_bot = TelegramBot()
+    """Advanced AI-powered trading bot with multiple decision models."""
+    
+    def __init__(self, initial_balance=100000.0, position_manager=None):
         self.initial_balance = initial_balance
-        self.balance = initial_balance
-        self.positions = {}
-        self.trade_history = []
+        self.position_manager = position_manager
+        self.order_history = []
+        self.performance_history = []
+        self.model_predictions = {}
+        self.market_data = {}
         self.latest_signals = []
-        self.status = "stopped"  # Peut être "running", "paused" ou "stopped"
-        logging.info("TradingBot initialized with models.")
+        self.trade_id_counter = 0
+        
+        # Model instances
+        self.price_model = None
+        self.risk_model = None
+        self.tpsl_model = None
+        self.indicator_model = None
+        self.sentiment_analyzer = None
+        self.transformer_model = None  # New Transformer model
+        
+        # Trading settings
+        self.max_positions = 5
+        self.risk_percentage = 0.02  # 2% risk per trade
+        self.use_ai_validation = True
+        self.enable_transformer = os.environ.get('USE_TRANSFORMER_MODEL', 'true').lower() == 'true'
+        
+        # Status
+        self.status = 'initialized'
+        
+        # Initialize position manager if not provided
+        if self.position_manager is None:
+            from app.models.position_manager import PositionManager
+            self.position_manager = PositionManager(initial_balance=initial_balance)
+            logging.info("Created new position manager")
+        else:
+            logging.info("Using provided position manager")
+        
+        self._load_models()
+        logger.info(f"TradingBot initialized with ${initial_balance} balance")
+        logger.info(f"Transformer model is {'enabled' if self.enable_transformer else 'disabled'}")
+
+    def _load_models(self):
+        """Load all trained models."""
+        try:
+            model_dir = os.environ.get('MODELS_DIR', 'saved_models')
+            
+            # Try to load global models first
+            try:
+                self.price_model = PricePredictionModel()
+                self.price_model.load(os.path.join(model_dir, 'global_price_model.h5'))
+                
+                self.risk_model = RiskManagementModel()
+                self.risk_model.load(os.path.join(model_dir, 'global_risk_model.h5'))
+                
+                self.tpsl_model = TpSlManagementModel()
+                self.tpsl_model.load(os.path.join(model_dir, 'global_tpsl_model.h5'))
+                
+                self.indicator_model = IndicatorManagementModel()
+                self.indicator_model.load(os.path.join(model_dir, 'global_indicator_model.h5'))
+                
+                # Try to load transformer model if enabled
+                if self.enable_transformer:
+                    try:
+                        from app.models.transformer_model import FinancialTransformer
+                        self.transformer_model = FinancialTransformer()
+                        self.transformer_model.load(
+                            os.path.join(model_dir, 'global_transformer_model'),
+                            os.path.join(model_dir, 'global_transformer_scalers.pkl')
+                        )
+                        logger.info("Loaded global transformer model")
+                    except Exception as e:
+                        logger.warning(f"Failed to load global transformer model: {e}")
+                
+                logger.info("Loaded global models")
+            except Exception as e:
+                logger.warning(f"Failed to load global models: {e}. Will try symbol-specific models later.")
+                
+            # Initialize sentiment analyzer
+            try:
+                self.sentiment_analyzer = SentimentAnalyzer()
+                logger.info("Initialized sentiment analyzer")
+            except Exception as e:
+                logger.warning(f"Failed to initialize sentiment analyzer: {e}")
+                
+        except Exception as e:
+            logger.error(f"Error loading models: {e}")
 
     def get_status(self) -> str:
         """Returns the current status of the trading bot"""
@@ -266,7 +354,7 @@ class TradingBot:
             logging.info(f"Risk management model trained for {symbol}")
             
             # Train TP/SL model
-            self.tp_sl_model.train(data, symbol)
+            self.tpsl_model.train(data, symbol)
             logging.info(f"TP/SL model trained for {symbol}")
             
             # Train indicator model
@@ -376,13 +464,13 @@ class TradingBot:
             
             # Get risk metrics
             risk_score = self.risk_model.predict(self.data_manager.data[symbol], symbol)
-            _, sl = self.tp_sl_model.predict(self.data_manager.data[symbol], symbol)
+            _, sl = self.tpsl_model.predict(self.data_manager.data[symbol], symbol)
             
             # Calculate stop loss distance
             stop_loss_distance = abs(current_price - sl)
             
             # Calculate maximum risk amount
-            risk_amount = self.balance * risk_per_trade * (1 - risk_score)
+            risk_amount = self.current_balance * risk_per_trade * (1 - risk_score)
             
             # Calculate position size
             position_size = risk_amount / stop_loss_distance
@@ -403,7 +491,7 @@ class TradingBot:
                 predicted_price = self.price_model.predict(data, symbol)
                 indicator_signal = self.indicator_model.predict(data, symbol)
                 risk_score = self.risk_model.predict(data, symbol)
-                tp, sl = self.tp_sl_model.predict(data, symbol)
+                tp, sl = self.tpsl_model.predict(data, symbol)
                 sentiment_score = self.analyze_market_sentiment(symbol)
                 
                 # Get RL model prediction if available
@@ -673,41 +761,51 @@ class TradingBot:
             
             # Execute trade based on decision
             if trading_enabled:
+                # Create metadata for additional trade information
+                metadata = {
+                    'validated': validated,
+                    'validation_confidence': validation_confidence,
+                    'decision_source': 'combined_signals',
+                    'signal_timestamp': datetime.now().isoformat()
+                }
+                
+                # Open a position based on the decision
                 if decision == "buy" and position_size > 0:
-                    if symbol in self.positions:
+                    # Check if we already have a position for this symbol
+                    if self.position_manager.get_position_count(symbol) > 0:
                         logging.info(f"Already holding position in {symbol}")
                     else:
-                        self.positions[symbol] = {
-                            'type': 'long',
-                            'entry_price': current_price,
-                            'size': position_size,
-                            'tp': tp,
-                            'sl': sl,
-                            'entry_time': datetime.now(),
-                            'validated': validated,
-                            'validation_confidence': validation_confidence
-                        }
-                        self.balance -= current_price * position_size
-                        message += "\nAction taken: Long position opened"
+                        # Open a long position
+                        position = self.position_manager.open_position(
+                            symbol=symbol,
+                            direction='long',
+                            entry_price=current_price,
+                            size=position_size,
+                            stop_loss=sl,
+                            take_profit=tp,
+                            metadata=metadata
+                        )
+                        message += f"\nAction taken: Long position opened (ID: {position.id})"
                         
                         # Store in database
                         self._store_trade_entry(symbol, 'long', current_price, position_size, tp, sl, validated, validation_confidence)
                         
                 elif decision == "sell" and position_size > 0:
-                    if symbol in self.positions:
+                    # Check if we already have a position for this symbol
+                    if self.position_manager.get_position_count(symbol) > 0:
                         logging.info(f"Already holding position in {symbol}")
                     else:
-                        self.positions[symbol] = {
-                            'type': 'short',
-                            'entry_price': current_price,
-                            'size': position_size,
-                            'tp': tp,
-                            'sl': sl,
-                            'entry_time': datetime.now(),
-                            'validated': validated,
-                            'validation_confidence': validation_confidence
-                        }
-                        message += "\nAction taken: Short position opened"
+                        # Open a short position
+                        position = self.position_manager.open_position(
+                            symbol=symbol,
+                            direction='short',
+                            entry_price=current_price,
+                            size=position_size,
+                            stop_loss=sl,
+                            take_profit=tp,
+                            metadata=metadata
+                        )
+                        message += f"\nAction taken: Short position opened (ID: {position.id})"
                         
                         # Store in database
                         self._store_trade_entry(symbol, 'short', current_price, position_size, tp, sl, validated, validation_confidence)
@@ -722,7 +820,7 @@ class TradingBot:
             self.telegram_bot.send_message(message)
             
             # Record trade in history
-            self.trade_history.append({
+            self.order_history.append({
                 'symbol': symbol,
                 'timestamp': datetime.now().isoformat(),
                 'action': decision,
@@ -793,81 +891,135 @@ class TradingBot:
         return default_value
 
     def manage_open_positions(self, data_manager: DataManager):
-        """Manage and monitor open positions"""
-        for symbol, position in list(self.positions.items()):
-            try:
-                current_price = data_manager.data[symbol]['Close'].iloc[-1]
-                entry_price = position['entry_price']
-                position_type = position['type']
-                
-                # Calculate profit/loss
-                if position_type == 'long':
-                    pnl = (current_price - entry_price) * position['size']
-                else:  # short
-                    pnl = (entry_price - current_price) * position['size']
-                
-                # Check stop loss
-                if (position_type == 'long' and current_price <= position['sl']) or \
-                   (position_type == 'short' and current_price >= position['sl']):
-                    self._close_position(symbol, current_price, 'Stop Loss')
-                    
-                # Check take profit
-                elif (position_type == 'long' and current_price >= position['tp']) or \
-                     (position_type == 'short' and current_price <= position['tp']):
-                    self._close_position(symbol, current_price, 'Take Profit')
-                    
-                # Update trailing stop if applicable
-                else:
-                    self._update_trailing_stop(symbol, current_price, position)
-                    
-            except Exception as e:
-                logging.error(f"Error managing position for {symbol}: {e}")
-
-    def _close_position(self, symbol: str, current_price: float, reason: str):
-        """Close a position and record the trade"""
+        """Check and manage open positions"""
         try:
-            position = self.positions[symbol]
-            pnl = (current_price - position['entry_price']) * position['size']
-            if position['type'] == 'short':
-                pnl = -pnl
+            # Get current market data for all symbols with open positions
+            open_position_symbols = set()
+            for position in self.position_manager.positions.values():
+                open_position_symbols.add(position.symbol)
             
-            self.balance += current_price * position['size'] + pnl
+            # Check each symbol with an open position
+            for symbol in open_position_symbols:
+                try:
+                    # Get current price
+                    current_price = data_manager.get_latest_price(symbol)
+                    
+                    # Check positions for this symbol
+                    closed_position_ids = self.position_manager.check_stops(symbol, current_price)
+                    
+                    # Process closed positions
+                    for position_id in closed_position_ids:
+                        # Find the closed position in closed_positions
+                        closed_position = next(
+                            (p for p in self.position_manager.closed_positions if p.id == position_id), 
+                            None
+                        )
+                        
+                        if closed_position:
+                            # Get close reason (should be stored in the position's metadata from check_stops)
+                            reason = closed_position.metadata.get('close_reason', 'Unknown')
+                            
+                            # Store trade exit in database
+                            self._store_trade_exit(
+                                symbol=closed_position.symbol,
+                                entry_time=closed_position.entry_time,
+                                exit_time=closed_position.exit_time,
+                                exit_price=closed_position.exit_price,
+                                pnl=closed_position.realized_pnl,
+                                reason=reason
+                            )
+                            
+                            # Notify
+                            message = (
+                                f"Position Closed - {closed_position.symbol}\n"
+                                f"Reason: {reason}\n"
+                                f"Entry Price: ${closed_position.entry_price:.2f}\n"
+                                f"Exit Price: ${closed_position.exit_price:.2f}\n"
+                                f"P/L: ${closed_position.realized_pnl:.2f}\n"
+                                f"Return: {closed_position.realized_pnl_percentage:.2f}%"
+                            )
+                            logging.info(message)
+                            self.telegram_bot.send_message(message)
+                    
+                    # Update trailing stops
+                    for position in self.position_manager.positions.values():
+                        if position.symbol == symbol:
+                            self._update_trailing_stop(position.id, current_price)
+                    
+                except Exception as e:
+                    logging.error(f"Error managing position for {symbol}: {e}")
             
-            # Record trade
-            self.trade_history.append({
-                'symbol': symbol,
-                'entry_time': position['entry_time'],
-                'exit_time': datetime.now(),
-                'entry_price': position['entry_price'],
-                'exit_price': current_price,
-                'type': position['type'],
-                'size': position['size'],
-                'pnl': pnl,
-                'reason': reason
-            })
-            
-            # Update in database
-            self._store_trade_exit(symbol, position['entry_time'], datetime.now(), 
-                                  current_price, pnl, reason)
-            
-            # Notify
-            message = (
-                f"Position Closed - {symbol}\n"
-                f"Reason: {reason}\n"
-                f"Entry Price: ${position['entry_price']:.2f}\n"
-                f"Exit Price: ${current_price:.2f}\n"
-                f"P/L: ${pnl:.2f}\n"
-                f"Return: {(pnl / (position['entry_price'] * position['size'])) * 100:.2f}%"
-            )
-            logging.info(message)
-            self.telegram_bot.send_message(message)
-            
-            # Remove position
-            del self.positions[symbol]
+            # Calculate and store metrics
+            self._calculate_and_store_metrics()
             
         except Exception as e:
-            logging.error(f"Error closing position for {symbol}: {e}")
+            logging.error(f"Error in manage_open_positions: {e}")
+
+    def _close_position(self, position_id: str, current_price: float, reason: str):
+        """Close a position and record the trade"""
+        try:
+            # Find the position
+            position = self.position_manager.positions.get(position_id)
+            if not position:
+                logging.error(f"Position {position_id} not found")
+                return
             
+            # Update position metadata with close reason
+            if not position.metadata:
+                position.metadata = {}
+            position.metadata['close_reason'] = reason
+            
+            # Close the position
+            pnl = self.position_manager.close_position(position_id, current_price)
+            
+            # Log the closure
+            message = (
+                f"Position Closed - {position.symbol}\n"
+                f"Reason: {reason}\n"
+                f"Entry Price: ${position.entry_price:.2f}\n"
+                f"Exit Price: ${current_price:.2f}\n"
+                f"P/L: ${pnl:.2f}"
+            )
+            logging.info(message)
+            
+        except Exception as e:
+            logging.error(f"Error in _close_position: {e}")
+
+    def _update_trailing_stop(self, position_id: str, current_price: float):
+        """Update trailing stop loss for a position if applicable"""
+        try:
+            # Get the position
+            position = self.position_manager.positions.get(position_id)
+            if not position:
+                return
+            
+            # Trailing stop configuration
+            trailing_stop_enabled = self._get_bot_setting('trailing_stop_enabled') == 'true'
+            activation_threshold_pct = float(self._get_bot_setting('trailing_activation_pct', '1.0')) / 100
+            trailing_distance_pct = float(self._get_bot_setting('trailing_distance_pct', '0.5')) / 100
+            
+            if not trailing_stop_enabled or not position.stop_loss:
+                return
+                
+            # Calculate profit threshold and new stop level
+            if position.direction == 'long':
+                profit_threshold = position.entry_price * (1 + activation_threshold_pct)
+                if current_price > profit_threshold:
+                    new_stop = current_price * (1 - trailing_distance_pct)
+                    if new_stop > position.stop_loss:
+                        self.position_manager.update_position_stops(position_id, new_stop_loss=new_stop)
+                        logging.info(f"Updated trailing stop for {position.symbol} to {new_stop:.2f}")
+            else:  # Short position
+                profit_threshold = position.entry_price * (1 - activation_threshold_pct)
+                if current_price < profit_threshold:
+                    new_stop = current_price * (1 + trailing_distance_pct)
+                    if new_stop < position.stop_loss:
+                        self.position_manager.update_position_stops(position_id, new_stop_loss=new_stop)
+                        logging.info(f"Updated trailing stop for {position.symbol} to {new_stop:.2f}")
+                        
+        except Exception as e:
+            logging.error(f"Error updating trailing stop: {e}")
+
     def _store_trade_exit(self, symbol: str, entry_time: datetime, exit_time: datetime, 
                          exit_price: float, pnl: float, reason: str) -> None:
         """Store trade exit in the database"""
@@ -894,25 +1046,6 @@ class TradingBot:
                 conn.close()
         except Exception as e:
             logging.error(f"Error storing trade exit: {e}")
-
-    def _update_trailing_stop(self, symbol: str, current_price: float, position: Dict):
-        """Update trailing stop loss if applicable"""
-        try:
-            atr = self.data_manager.data[symbol]['ATR'].iloc[-1]
-            
-            if position['type'] == 'long':
-                new_stop = current_price - (2 * atr)  # 2 ATR units below current price
-                if new_stop > position['sl']:  # Only move stop up for long positions
-                    position['sl'] = new_stop
-                    logging.info(f"Updated trailing stop for {symbol} long position to: ${new_stop:.2f}")
-            else:  # short position
-                new_stop = current_price + (2 * atr)  # 2 ATR units above current price
-                if new_stop < position['sl']:  # Only move stop down for short positions
-                    position['sl'] = new_stop
-                    logging.info(f"Updated trailing stop for {symbol} short position to: ${new_stop:.2f}")
-                    
-        except Exception as e:
-            logging.error(f"Error updating trailing stop for {symbol}: {e}")
 
     def start_real_time_scanning(self, data_manager: DataManager, interval_seconds: int = 60):
         """Start real-time market scanning and trading"""
@@ -991,52 +1124,55 @@ class TradingBot:
     def _calculate_and_store_metrics(self) -> None:
         """Calculate and store performance metrics"""
         try:
-            today = datetime.now().date()
+            # Get current date and market data for open positions
+            current_date = datetime.now().date()
+            market_prices = {}
             
-            # Calculate today's performance
-            today_trades = [t for t in self.trade_history 
-                           if 'exit_time' in t and t['exit_time'].date() == today]
+            # Gather current prices for all positions
+            for position in self.position_manager.positions.values():
+                try:
+                    if position.symbol not in market_prices:
+                        market_prices[position.symbol] = self.data_manager.get_latest_price(position.symbol)
+                except Exception as e:
+                    logging.error(f"Error getting price for {position.symbol}: {e}")
             
-            if not today_trades:
-                return
-                
-            # Calculate metrics
-            daily_pnl = sum(t['pnl'] for t in today_trades)
-            winning_trades = sum(1 for t in today_trades if t['pnl'] > 0)
-            losing_trades = sum(1 for t in today_trades if t['pnl'] <= 0)
-            total_trades = len(today_trades)
+            # Get portfolio stats from position manager
+            portfolio_stats = self.position_manager.get_portfolio_stats(market_prices)
             
-            if winning_trades > 0:
-                average_win = sum(t['pnl'] for t in today_trades if t['pnl'] > 0) / winning_trades
-            else:
+            # Calculate trading statistics
+            closed_positions = self.position_manager.closed_positions
+            
+            total_trades = len(closed_positions)
+            if total_trades == 0:
+                winning_trades = 0
+                losing_trades = 0
+                win_rate = 0
                 average_win = 0
-                
-            if losing_trades > 0:
-                average_loss = sum(abs(t['pnl']) for t in today_trades if t['pnl'] <= 0) / losing_trades
-            else:
                 average_loss = 0
-                
-            # Calculate advanced metrics
-            win_rate = winning_trades / total_trades if total_trades > 0 else 0
-            
-            if average_loss > 0:
-                profit_factor = average_win / average_loss if average_loss > 0 else 0
+                profit_factor = 0
             else:
-                profit_factor = float('inf') if average_win > 0 else 0
-            
-            # Equity = current balance + value of open positions
-            equity = self.balance
-            for symbol, position in self.positions.items():
-                current_price = self.data_manager.data[symbol]['Close'].iloc[-1]
-                position_value = position['size'] * current_price
-                equity += position_value
+                # Calculate win/loss statistics
+                winning_trades = sum(1 for pos in closed_positions if pos.realized_pnl > 0)
+                losing_trades = sum(1 for pos in closed_positions if pos.realized_pnl <= 0)
                 
+                win_rate = winning_trades / total_trades if total_trades > 0 else 0
+                
+                winning_amounts = [pos.realized_pnl for pos in closed_positions if pos.realized_pnl > 0]
+                losing_amounts = [abs(pos.realized_pnl) for pos in closed_positions if pos.realized_pnl <= 0]
+                
+                average_win = sum(winning_amounts) / len(winning_amounts) if winning_amounts else 0
+                average_loss = sum(losing_amounts) / len(losing_amounts) if losing_amounts else 0
+                
+                gross_profit = sum(winning_amounts)
+                gross_loss = sum(losing_amounts)
+                profit_factor = gross_profit / gross_loss if gross_loss > 0 else (1 if gross_profit > 0 else 0)
+            
             # Store metrics in database
             self._store_performance_metrics(
-                date=today,
-                balance=self.balance,
-                equity=equity,
-                daily_pnl=daily_pnl,
+                date=current_date,
+                balance=portfolio_stats['current_balance'],
+                equity=portfolio_stats['total_equity'],
+                daily_pnl=portfolio_stats['unrealized_pnl'],  # This is an approximation
                 total_trades=total_trades,
                 winning_trades=winning_trades,
                 losing_trades=losing_trades,
@@ -1047,7 +1183,7 @@ class TradingBot:
             )
             
         except Exception as e:
-            logging.error(f"Error calculating performance metrics: {e}")
+            logging.error(f"Error calculating metrics: {e}")
             
     def _store_performance_metrics(self, date, balance, equity, daily_pnl, total_trades,
                                  winning_trades, losing_trades, win_rate, average_win,
@@ -1101,6 +1237,124 @@ class TradingBot:
                 conn.close()
         except Exception as e:
             logging.error(f"Error storing performance metrics: {e}")
+
+    def generate_trading_signals(self, symbol, data):
+        """Generate trading signals using multiple models."""
+        logger.info(f"Generating trading signals for {symbol}")
+        
+        signals = []
+        
+        try:
+            # Get the latest data
+            latest_data = data.copy().iloc[-100:]  # Use last 100 bars for signal generation
+            
+            # Price prediction signals
+            price_predictions = None
+            transformer_predictions = None
+            
+            if self.price_model:
+                try:
+                    price_predictions = self.price_model.predict(latest_data)
+                    self.model_predictions[f"{symbol}_price"] = price_predictions
+                except Exception as e:
+                    logger.error(f"Error getting price predictions for {symbol}: {e}")
+            
+            # Transformer model predictions (if available)
+            if self.transformer_model and self.enable_transformer:
+                try:
+                    transformer_predictions = self.transformer_model.predict(latest_data)
+                    self.model_predictions[f"{symbol}_transformer"] = transformer_predictions
+                    logger.info(f"Transformer predictions for {symbol}: {transformer_predictions}")
+                except Exception as e:
+                    logger.error(f"Error getting transformer predictions for {symbol}: {e}")
+            
+            # Combine price predictions (using transformer if available)
+            final_predictions = None
+            if transformer_predictions is not None:
+                final_predictions = transformer_predictions
+                logger.info(f"Using transformer predictions for {symbol}")
+            elif price_predictions is not None:
+                final_predictions = price_predictions
+                logger.info(f"Using traditional model predictions for {symbol}")
+            
+            if final_predictions is not None:
+                # Calculate prediction direction and strength
+                current_price = latest_data['Close'].iloc[-1]
+                future_price = final_predictions[0]  # First prediction
+                
+                price_change_pct = (future_price - current_price) / current_price * 100
+                
+                # Generate signal based on prediction
+                if price_change_pct > 1.0:  # More than 1% increase expected
+                    signals.append({
+                        'symbol': symbol,
+                        'direction': 'buy',
+                        'confidence': min(abs(price_change_pct) / 5, 1.0),  # Scale confidence
+                        'timestamp': datetime.now().isoformat(),
+                        'source': 'transformer' if transformer_predictions is not None else 'price_model',
+                        'predicted_change': price_change_pct
+                    })
+                elif price_change_pct < -1.0:  # More than 1% decrease expected
+                    signals.append({
+                        'symbol': symbol,
+                        'direction': 'sell',
+                        'confidence': min(abs(price_change_pct) / 5, 1.0),
+                        'timestamp': datetime.now().isoformat(),
+                        'source': 'transformer' if transformer_predictions is not None else 'price_model',
+                        'predicted_change': price_change_pct
+                    })
+            
+            # Add risk assessment to signals
+            if self.risk_model and signals:
+                for signal in signals:
+                    try:
+                        risk_score = self.risk_model.predict_risk(latest_data)
+                        signal['risk_score'] = risk_score
+                        
+                        # Adjust confidence based on risk
+                        signal['confidence'] *= (1 - risk_score)
+                    except Exception as e:
+                        logger.error(f"Error calculating risk for {symbol}: {e}")
+            
+            # Add sentiment analysis if available
+            if self.sentiment_analyzer:
+                try:
+                    sentiment = self.sentiment_analyzer.analyze_sentiment(symbol)
+                    
+                    if sentiment:
+                        sentiment_signal = {
+                            'symbol': symbol,
+                            'direction': 'buy' if sentiment['sentiment_score'] > 0.2 else 'sell' if sentiment['sentiment_score'] < -0.2 else 'neutral',
+                            'confidence': abs(sentiment['sentiment_score']),
+                            'timestamp': datetime.now().isoformat(),
+                            'source': 'sentiment',
+                            'sentiment': sentiment
+                        }
+                        signals.append(sentiment_signal)
+                except Exception as e:
+                    logger.error(f"Error analyzing sentiment for {symbol}: {e}")
+            
+            # Validate signals with AI validation if enabled
+            if self.use_ai_validation and redis_client:
+                try:
+                    validated_signals = self._validate_signals_with_ai(symbol, signals, latest_data)
+                    signals = validated_signals
+                except Exception as e:
+                    logger.error(f"Error validating signals with AI: {e}")
+                    
+            # Store the signals
+            if symbol not in self.latest_signals:
+                self.latest_signals.append({
+                    'symbol': symbol,
+                    'signals': signals,
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+            return signals
+            
+        except Exception as e:
+            logger.error(f"Error generating trading signals for {symbol}: {e}")
+            return []
 
 if __name__ == "__main__":
     try:
