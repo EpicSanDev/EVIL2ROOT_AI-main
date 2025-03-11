@@ -13,6 +13,7 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    git \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -31,9 +32,8 @@ COPY requirements.txt .
 RUN grep -v "plotly\|dash" requirements.txt > requirements-filtered.txt \
     && pip install --no-cache-dir -r requirements-filtered.txt
 
-# Install additional dependencies for TensorFlow GPU support (if needed)
-# Uncomment if you need GPU support
-# RUN pip install tensorflow-gpu
+# Install additional dependencies for analysis bot
+RUN pip install --no-cache-dir python-telegram-bot==20.6 asyncio==3.4.3 schedule==1.2.0 openrouter==0.3.0
 
 # Copy application code
 COPY . .
@@ -48,5 +48,8 @@ ENV FLASK_ENV=production
 # Expose port
 EXPOSE 5000
 
-# Run the application
+# Make start script executable
+RUN chmod +x start_daily_analysis.py
+
+# Default command
 CMD ["gunicorn", "--bind", "0.0.0.0:5000", "run:app"] 

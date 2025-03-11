@@ -7,7 +7,7 @@ load_dotenv()
 
 class TelegramBot:
     def __init__(self):
-        token = os.getenv('TELEGRAM_BOT_TOKEN')
+        token = os.getenv('TELEGRAM_TOKEN')
         self.chat_id = os.getenv('TELEGRAM_CHAT_ID')
         self.enabled = False
         
@@ -28,7 +28,8 @@ class TelegramBot:
             return
             
         try:
-            await self.bot.send_message(chat_id=self.chat_id, text=message)
+            await self.bot.send_message(chat_id=self.chat_id, text=message, parse_mode='Markdown')
         except Exception as e:
             print(f"[Notification]: {message}")
+            print(f"Error sending Telegram message: {e}")
             self.enabled = False  # Disable on error

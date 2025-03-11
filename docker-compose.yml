@@ -19,6 +19,22 @@ services:
       - redis
     restart: unless-stopped
 
+  analysis-bot:
+    build: .
+    image: evil2root/trading-bot:latest
+    container_name: trading-bot-analysis
+    command: python start_daily_analysis.py
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./saved_models:/app/saved_models
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+
   db:
     image: postgres:13
     container_name: trading-bot-db
