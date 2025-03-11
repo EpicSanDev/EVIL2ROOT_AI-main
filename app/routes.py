@@ -2,6 +2,8 @@ from flask import Blueprint, render_template, jsonify, request, redirect, url_fo
 import psutil
 import plotly.graph_objs as go
 import plotly.io as pio
+# Configuration optimisée pour Plotly
+pio.templates.default = "plotly_white"  # Définir un template par défaut
 from app import trading_bot, data_manager
 from app.model_trainer import ModelTrainer
 import json
@@ -11,6 +13,16 @@ import os
 from dotenv import load_dotenv
 import psycopg2
 import logging
+
+# Configuration des templates Plotly pour optimiser le temps de rendu
+# Utiliser des templates minimalistes pour réduire le temps de génération
+simple_layout = {
+    'margin': {'l': 40, 'r': 20, 't': 40, 'b': 30},
+    'paper_bgcolor': 'rgba(0,0,0,0)',
+    'plot_bgcolor': 'rgba(0,0,0,0)',
+    'showlegend': False,
+    'hovermode': 'closest'
+}
 
 main_blueprint = Blueprint('main', __name__)
 
@@ -23,21 +35,24 @@ def dashboard():
     cpu_percent = psutil.cpu_percent(interval=1)
     memory_info = psutil.virtual_memory()
 
-    # Prepare CPU usage chart
+    # Prepare CPU usage chart - OPTIMISÉ
     cpu_chart = go.Figure(data=[go.Bar(x=['CPU Usage'], y=[cpu_percent], marker=dict(color='rgb(55, 83, 109)'))])
-    cpu_chart.update_layout(title='CPU Usage (%)')
+    cpu_chart.update_layout(
+        title='CPU Usage (%)',
+        **simple_layout  # Utiliser le layout simplifié
+    )
 
-    # Convert the chart to JSON
-    cpu_chart_json = pio.to_json(cpu_chart)
+    # Convert the chart to JSON - OPTIMISÉ
+    cpu_chart_json = pio.to_json(cpu_chart, validate=False, pretty=False)  # Désactiver validation pour plus de vitesse
 
-    # Get trading statistics
+    # Get trading signals
     signals = trading_bot.get_latest_signals() if trading_bot else []
 
     return render_template('dashboard.html', 
-                           cpu_percent=cpu_percent,
-                           memory_info=memory_info,
-                           cpu_chart=cpu_chart_json,
-                           signals=signals)
+                          cpu_percent=cpu_percent,
+                          memory_info=memory_info,
+                          cpu_chart=cpu_chart_json,
+                          signals=signals)
 
 @main_blueprint.route('/advanced')
 def advanced_dashboard():
@@ -132,8 +147,9 @@ def performance():
         dates = [item[0].strftime('%Y-%m-%d') for item in portfolio_history]
         portfolio_values = [float(item[1]) for item in portfolio_history]
         
-        # Créer un graphique de performance
+        # Créer un graphique de performance - OPTIMISÉ
         performance_chart = go.Figure()
+        # Utiliser une configuration plus légère pour le scatter plot
         performance_chart.add_trace(go.Scatter(
             x=dates,
             y=portfolio_values,
@@ -142,11 +158,12 @@ def performance():
             line=dict(color='rgb(41, 128, 185)', width=2)
         ))
         
+        # Appliquer un layout simplifié
         performance_chart.update_layout(
             title='Portfolio Performance (Last 30 Days)',
             xaxis_title='Date',
             yaxis_title='Portfolio Value ($)',
-            template='plotly_white'
+            **simple_layout  # Utiliser le layout simplifié
         )
         
         # Calculer les métriques de performance

@@ -41,9 +41,8 @@ ccxt>=3.0.69
 statsmodels>=0.14.0
 alpha_vantage>=2.3.1
 
-# Monitoring & Visualization
-plotly>=5.14.1
-dash>=2.10.0
+# Monitoring & Visualization - SUPPRIMÉ
+# plotly et dash sont installés séparément dans le Dockerfile
 
 # Simplifier NLP (sans spacy)
 nltk>=3.8.1
