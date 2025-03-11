@@ -1,0 +1,77 @@
+# Environment variables and secrets
+.env
+*.env
+.flaskenv
+
+# Data and model folders
+/data/*
+/saved_models/*
+/logs/*
+!/data/.gitkeep
+!/saved_models/.gitkeep
+!/logs/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual Environment
+venv/
+ENV/
+.env/
+.venv/
+env/
+
+# Docker
+.dockerignore
+
+# Database
+*.db
+*.sqlite3
+*.sql
+*.backup
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Node.js / JavaScript
+node_modules/
+jspm_packages/
+.npm
+.eslintcache
+.node_repl_history
+*.tgz
+.yarn-integrity
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db 

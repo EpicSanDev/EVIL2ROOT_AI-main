@@ -12,13 +12,14 @@ class ModelTrainer:
         os.makedirs(self.model_dir, exist_ok=True)  # Create directory if it doesn't exist
 
     def train_or_load_model(self, data, symbol):
-        model_path = f'models/{symbol}_model.h5'
+        model_path = os.path.join(self.model_dir, f'{symbol}_model.h5')
         if os.path.exists(model_path):
             logging.info(f"Loading existing model for {symbol}.")
             model = load_model(model_path)
         else:
             logging.info(f"Training new model for {symbol}.")
             model = self.train_model(data, symbol)
+            os.makedirs(os.path.dirname(model_path), exist_ok=True)
             model.save(model_path)
         return model
 

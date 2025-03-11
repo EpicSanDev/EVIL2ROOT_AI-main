@@ -1,0 +1,106 @@
+services:
+  trading-bot:
+    build:
+      context: .
+      dockerfile: docker/services/Dockerfile.bot
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./saved_models:/app/saved_models
+    env_file: .env
+    environment:
+      - DB_HOST=database
+      - REDIS_HOST=redis
+    depends_on:
+      - database
+      - redis
+      - ai-validation
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; os.path.exists('/app/logs/trading_bot.log')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  ai-validation:
+    build:
+      context: .
+      dockerfile: docker/services/Dockerfile.ai
+    restart: unless-stopped
+    volumes:
+      - ./saved_models:/app/saved_models
+      - ./logs:/app/logs
+    env_file: .env
+    environment:
+      - REDIS_HOST=redis
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis, os; redis.Redis(host=os.environ.get('REDIS_HOST', 'redis')).ping()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  web-ui:
+    build:
+      context: .
+      dockerfile: docker/services/Dockerfile.web
+    restart: unless-stopped
+    ports:
+      - "5001:5000"
+    volumes:
+      - ./logs:/app/logs
+    env_file: .env
+    environment:
+      - DB_HOST=database
+      - REDIS_HOST=redis
+      - FLASK_APP=app:create_app
+      - FLASK_ENV=production
+    depends_on:
+      - database
+      - redis
+      - trading-bot
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  database:
+    image: postgres:14-alpine
+    restart: always
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/init-db:/docker-entrypoint-initdb.d
+    environment:
+      - POSTGRES_USER=${DB_USER:-trader}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-secure_password}
+      - POSTGRES_DB=${DB_NAME:-trading_db}
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-trader} -d ${DB_NAME:-trading_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:alpine
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:

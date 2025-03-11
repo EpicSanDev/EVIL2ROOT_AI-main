@@ -1,0 +1,43 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install system dependencies including curl for healthchecks
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create necessary directories
+RUN mkdir -p /app/logs /app/static /app/templates
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy entrypoint script
+COPY docker/services/entrypoint-web.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Copy application code
+COPY . .
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV FLASK_APP=app.routes
+ENV FLASK_ENV=production
+ENV PYTHONUNBUFFERED=1
+ENV TZ=Europe/Brussels
+
+# Make log directory writable
+RUN chmod -R 777 /app/logs
+
+# Expose port
+EXPOSE 5000
+
+# Set entrypoint
+ENTRYPOINT ["/entrypoint.sh"]
+
+# Command to run the web UI
+CMD ["flask", "run", "--host=0.0.0.0"]

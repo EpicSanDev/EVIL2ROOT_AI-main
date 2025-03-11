@@ -11,6 +11,7 @@ import ta
 from typing import Dict, List, Tuple, Optional
 import matplotlib.pyplot as plt
 from collections import deque
+from scipy.stats import norm
 
 class AdvancedTradingEnv(gym.Env):
     """Custom Environment that follows gym interface"""
@@ -156,12 +157,6 @@ class AdvancedTradingEnv(gym.Env):
         return agreement * 2 - 1  # Convert to [-1, 1] range
 
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict]:
-        """Execute one time step within the environment"""
-        self.current_step += 1
-        
-        if self.current_step >= len(self.data):
-            return self._get_observation(), 0, True, False, {}
-        
         """Execute one step in the environment with enhanced risk management"""
         self.current_step += 1
         
@@ -294,8 +289,12 @@ class AdvancedTradingEnv(gym.Env):
 
 def create_trading_env(data: pd.DataFrame) -> gym.Env:
     """Create and wrap the trading environment"""
+    # Create a dictionary with timeframes for the AdvancedTradingEnv
+    timeframes = ['1h', '4h', '1d']
+    data_dict = {tf: data.copy() for tf in timeframes}
+    
     def make_env():
-        env = AdvancedTradingEnv(data)
+        env = AdvancedTradingEnv(data_dict, timeframes=timeframes)
         return env
     
     env = DummyVecEnv([make_env])

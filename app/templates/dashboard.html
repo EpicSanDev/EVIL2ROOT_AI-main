@@ -3,29 +3,124 @@
 {% block content %}
     <h1>Trading Bot Dashboard</h1>
     
-    <h2>System Performance</h2>
-    <div id="cpu-chart"></div>
+    <div class="dashboard-grid">
+        <div class="performance-panel">
+            <h2>System Performance</h2>
+            <div class="performance-stats">
+                <div class="stat-item">
+                    <span class="stat-label">CPU:</span>
+                    <span class="stat-value">{{ cpu_percent }}%</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Memory:</span>
+                    <span class="stat-value">{{ memory_info.percent }}%</span>
+                </div>
+            </div>
+            <div id="cpu-chart"></div>
+        </div>
 
-    <h2>Bot Status</h2>
-    <div id="bot-status">
-        <p>State: <span id="bot-state">Loading...</span></p>
-        <p>Signals: <span id="bot-signals">Loading...</span></p>
+        <div class="trading-panel">
+            <h2>Bot Status</h2>
+            <div id="bot-status">
+                <p>State: <span id="bot-state" class="status-indicator">Loading...</span></p>
+            </div>
+            
+            <div class="bot-controls">
+                <button id="start-bot" class="button primary">Start Bot</button>
+                <button id="pause-bot" class="button secondary">Pause Bot</button>
+                <button id="stop-bot" class="button danger">Stop Bot</button>
+            </div>
+        
+            <h2>Trading Signals</h2>
+            <div class="signals-table">
+                <table id="signals-table">
+                    <thead>
+                        <tr>
+                            <th>Symbol</th>
+                            <th>Signal</th>
+                            <th>Timestamp</th>
+                            <th>Confidence</th>
+                        </tr>
+                    </thead>
+                    <tbody id="signals-data">
+                        {% if signals %}
+                            {% for signal in signals %}
+                                <tr>
+                                    <td>{{ signal.symbol }}</td>
+                                    <td class="signal-{{ signal.decision }}">{{ signal.decision }}</td>
+                                    <td>{{ signal.timestamp }}</td>
+                                    <td>{{ signal.confidence }}</td>
+                                </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="4">No signals available</td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 
     <script>
-        // Parse the JSON string into a Plotly figure
+        // Initial setup for the CPU chart
         var cpuChart = JSON.parse('{{ cpu_chart|safe }}');
         Plotly.newPlot('cpu-chart', cpuChart.data, cpuChart.layout);
-
-        // Fetch bot status
-        async function fetchBotStatus() {
-            const response = await fetch('/bot_status');
-            const data = await response.json();
-            document.getElementById('bot-state').textContent = data.state;
-            document.getElementById('bot-signals').textContent = data.signals.join(', ');
+        
+        // Bot control buttons
+        document.getElementById('start-bot').addEventListener('click', function() {
+            controlBot('start');
+        });
+        
+        document.getElementById('pause-bot').addEventListener('click', function() {
+            controlBot('pause');
+        });
+        
+        document.getElementById('stop-bot').addEventListener('click', function() {
+            controlBot('stop');
+        });
+        
+        // Function to control the bot
+        async function controlBot(action) {
+            try {
+                const response = await fetch(`/control_bot/${action}`, {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Update the bot state
+                    document.getElementById('bot-state').textContent = data.state;
+                    document.getElementById('bot-state').className = 'status-indicator ' + data.state;
+                    
+                    // Show a notification
+                    showNotification(data.message, 'success');
+                } else {
+                    showNotification(data.message, 'error');
+                }
+            } catch (error) {
+                console.error('Error controlling bot:', error);
+                showNotification('Error controlling bot', 'error');
+            }
         }
-
-        fetchBotStatus();
-        setInterval(fetchBotStatus, 5000);  // Refresh every 5 seconds
+        
+        // Function to show a notification
+        function showNotification(message, type) {
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.textContent = message;
+            
+            document.body.appendChild(notification);
+            
+            // Remove the notification after 3 seconds
+            setTimeout(function() {
+                notification.classList.add('fade-out');
+                setTimeout(function() {
+                    document.body.removeChild(notification);
+                }, 500);
+            }, 3000);
+        }
     </script>
 {% endblock %}

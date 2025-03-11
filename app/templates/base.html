@@ -3,13 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trading Bot Dashboard</title>
+    <title>EVIL2ROOT Trading Bot Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="{{ url_for('static', filename='js/scripts.js') }}"></script>
 </head>
 <body>
     <div class="container">
+        <div class="nav-links">
+            <a href="/" class="{{ 'active' if request.path == '/' else '' }}">Dashboard</a>
+            <a href="/performance" class="{{ 'active' if request.path == '/performance' else '' }}">Performance</a>
+            <a href="/settings" class="{{ 'active' if request.path == '/settings' else '' }}">Settings</a>
+        </div>
+        
         {% block content %}{% endblock %}
     </div>
+    <footer>
+        <div class="container">
+            <p>&copy; 2023 EVIL2ROOT Trading Bot - Made with AI-Powered Trading Technology</p>
+        </div>
+    </footer>
 </body>
 </html>

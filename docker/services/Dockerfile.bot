@@ -1,0 +1,48 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install system dependencies for ML libraries and numerical computation
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    wget \
+    git \
+    curl \
+    gcc \
+    g++ \
+    libssl-dev \
+    cmake \
+    libblas-dev \
+    liblapack-dev \
+    libatlas-base-dev \
+    gfortran \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create necessary directories
+RUN mkdir -p /app/logs /app/data /app/saved_models
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy entrypoint script
+COPY docker/services/entrypoint-bot.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Copy application code
+COPY . .
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+ENV TZ=Europe/Brussels
+
+# Make log directory writable
+RUN chmod -R 777 /app/logs
+
+# Set entrypoint
+ENTRYPOINT ["/entrypoint.sh"]
+
+# Command to run the trading bot
+CMD ["python", "run.py"]

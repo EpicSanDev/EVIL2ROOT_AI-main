@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <h1>Trading Performance</h1>
+    
+    <div class="dashboard-grid">
+        <div class="performance-panel">
+            <h2>Portfolio Performance</h2>
+            <div id="performance-chart"></div>
+        </div>
+
+        <div class="trading-panel">
+            <h2>Performance Metrics</h2>
+            <div class="performance-metrics">
+                <div class="metric-item">
+                    <span class="metric-label">Current Value:</span>
+                    <span class="metric-value">{{ metrics.current_value }}</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Initial Value:</span>
+                    <span class="metric-value">{{ metrics.initial_value }}</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Total Return:</span>
+                    <span class="metric-value {% if metrics.total_return.startswith('-') %}negative{% else %}positive{% endif %}">
+                        {{ metrics.total_return }}
+                    </span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Avg. Daily Return:</span>
+                    <span class="metric-value {% if metrics.daily_avg_return.startswith('-') %}negative{% else %}positive{% endif %}">
+                        {{ metrics.daily_avg_return }}
+                    </span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Best Day:</span>
+                    <span class="metric-value positive">{{ metrics.best_day_return }}</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Worst Day:</span>
+                    <span class="metric-value negative">{{ metrics.worst_day_return }}</span>
+                </div>
+            </div>
+            
+            <div class="actions">
+                <a href="/" class="button">Back to Dashboard</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Parse the JSON string into a Plotly figure
+        var performanceChart = JSON.parse('{{ performance_chart|safe }}');
+        Plotly.newPlot('performance-chart', performanceChart.data, performanceChart.layout);
+    </script>
+{% endblock %} 

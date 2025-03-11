@@ -1,0 +1,49 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install system dependencies for AI and ML libraries
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    g++ \
+    libssl-dev \
+    libblas-dev \
+    liblapack-dev \
+    libatlas-base-dev \
+    gfortran \
+    pkg-config \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Ollama
+RUN curl -fsSL https://ollama.com/install.sh | sh
+
+# Create necessary directories
+RUN mkdir -p /app/logs /app/saved_models
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy entrypoint script
+COPY docker/services/entrypoint-ai.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Copy application code
+COPY . .
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+ENV TZ=Europe/Brussels
+
+# Make log directory writable
+RUN chmod -R 777 /app/logs
+
+# Set entrypoint
+ENTRYPOINT ["/entrypoint.sh"]
+
+# Command to run the AI validation service
+CMD ["python", "app/ai_trade_validator.py"]

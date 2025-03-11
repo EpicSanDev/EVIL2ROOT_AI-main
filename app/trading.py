@@ -5,8 +5,13 @@ import logging
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple, Union
 import os
+import json
+import uuid
+import redis
+import psycopg2
+from psycopg2.extras import DictCursor
 from dotenv import load_dotenv
 
 from app.models.price_prediction import PricePredictionModel
@@ -18,6 +23,7 @@ from app.models.sentiment_analysis import SentimentAnalyzer
 from app.models.backtesting import run_backtest
 from app.telegram_bot import TelegramBot
 from app.model_trainer import ModelTrainer
+from app.models.news_retrieval import NewsRetriever
 
 # Load environment variables
 load_dotenv()
@@ -27,11 +33,41 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('trading_bot.log'),
+        logging.FileHandler('logs/trading_bot.log'),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Initialize Redis (for AI validation communication)
+redis_host = os.environ.get('REDIS_HOST', 'localhost')
+redis_port = int(os.environ.get('REDIS_PORT', 6379))
+redis_client = None
+
+try:
+    redis_client = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
+    logger.info(f"Connected to Redis at {redis_host}:{redis_port}")
+except Exception as e:
+    logger.error(f"Failed to connect to Redis: {e}")
+
+# Initialize database connection
+db_params = {
+    'dbname': os.environ.get('DB_NAME', 'trading_db'),
+    'user': os.environ.get('DB_USER', 'trader'),
+    'password': os.environ.get('DB_PASSWORD', 'secure_password'),
+    'host': os.environ.get('DB_HOST', 'localhost'),
+    'port': os.environ.get('DB_PORT', '5432')
+}
+
+def get_db_connection():
+    """Get a connection to the PostgreSQL database"""
+    try:
+        conn = psycopg2.connect(**db_params)
+        logger.info(f"Connected to database at {db_params['host']}:{db_params['port']}")
+        return conn
+    except Exception as e:
+        logger.error(f"Database connection error: {e}")
+        return None
 
 class DataManager:
     def __init__(self, symbols: List[str], start_date: Optional[str] = None, end_date: Optional[str] = None):
@@ -161,11 +197,45 @@ class TradingBot:
         self.positions = {}
         self.trade_history = []
         self.latest_signals = []
+        self.status = "stopped"  # Peut être "running", "paused" ou "stopped"
         logging.info("TradingBot initialized with models.")
 
+    def get_status(self) -> str:
+        """Returns the current status of the trading bot"""
+        return self.status
+        
+    def set_status(self, status: str) -> None:
+        """Sets the status of the trading bot"""
+        if status in ["running", "paused", "stopped"]:
+            self.status = status
+            logging.info(f"Trading bot status changed to: {status}")
+        else:
+            logging.error(f"Invalid status: {status}")
+
     def get_latest_signals(self) -> List[Dict]:
-        """Returns the latest trading signals"""
-        return self.latest_signals
+        """Returns the latest trading signals from database"""
+        try:
+            # Récupérer les signaux réels depuis la base de données
+            conn = get_db_connection()
+            if conn:
+                with conn.cursor(cursor_factory=DictCursor) as cur:
+                    cur.execute("""
+                        SELECT s.symbol, s.decision, s.timestamp, s.validation_confidence
+                        FROM trading_signals s
+                        WHERE s.timestamp >= NOW() - INTERVAL '24 hours'
+                        ORDER BY s.timestamp DESC
+                        LIMIT 10
+                    """)
+                    
+                    results = cur.fetchall()
+                    if results:
+                        self.latest_signals = [dict(row) for row in results]
+                conn.close()
+            
+            return self.latest_signals
+        except Exception as e:
+            logging.error(f"Error retrieving latest signals: {e}")
+            return self.latest_signals  # Return last known signals in case of error
 
     def train_all_models(self, data_manager: DataManager):
         """Train all models with available data"""
@@ -236,15 +306,29 @@ class TradingBot:
     def analyze_market_sentiment(self, symbol: str) -> float:
         """Analyze market sentiment for a symbol"""
         try:
-            # Get recent news headlines
-            ticker = yf.Ticker(symbol)
-            news = ticker.news
-            if not news:
+            # Initialiser le récupérateur de news
+            news_retriever = NewsRetriever()
+            
+            # Récupérer les headlines via notre nouveau module (combinant OpenRouter et Perplexity)
+            headlines = news_retriever.get_news_headlines(symbol, max_results=15)
+            
+            if not headlines:
+                # Fallback à yfinance si aucune headline n'est trouvée
+                logging.warning(f"Aucune news trouvée via APIs pour {symbol}, essai avec yfinance")
+                try:
+                    ticker = yf.Ticker(symbol)
+                    news = ticker.news
+                    if news:
+                        headlines = [item['title'] for item in news[:10]]
+                except Exception as e:
+                    logging.error(f"Erreur lors de la récupération des news via yfinance: {e}")
+            
+            if not headlines:
                 logging.warning(f"No news found for {symbol}")
                 return 0.0
             
-            # Extract headlines
-            headlines = [item['title'] for item in news[:10]]  # Analyze last 10 headlines
+            # Log des headlines récupérées pour debug
+            logging.info(f"Headlines récupérées pour {symbol}: {headlines[:5]}...")
             
             # Analyze sentiment
             sentiment_results = self.sentiment_analyzer.analyze_market_sentiment(headlines)
@@ -310,7 +394,7 @@ class TradingBot:
             return 0.0
 
     def execute_trades(self, data_manager: DataManager):
-        """Execute trades based on all signals"""
+        """Execute trades based on all signals with AI validation"""
         self.data_manager = data_manager  # Store for position sizing
         
         for symbol, data in data_manager.data.items():
@@ -341,10 +425,58 @@ class TradingBot:
                     sentiment_score=sentiment_score
                 )
                 
-                # Execute the trade
-                self.execute_trade(decision, symbol, predicted_price, tp, sl)
+                # Prepare trade data
+                current_price = data['Close'].iloc[-1]
+                trade_data = {
+                    'request_id': str(uuid.uuid4()),
+                    'symbol': symbol,
+                    'action': decision,
+                    'price': float(current_price),
+                    'take_profit': float(tp),
+                    'stop_loss': float(sl),
+                    'risk_score': float(risk_score),
+                    'timestamp': datetime.now().isoformat()
+                }
                 
-                # Store signals
+                # Store signals in database
+                signal_id = self._store_signal(
+                    symbol=symbol,
+                    decision=decision,
+                    predicted_price=predicted_price,
+                    risk_score=risk_score,
+                    tp=tp,
+                    sl=sl,
+                    sentiment_score=sentiment_score,
+                    rl_signal=rl_signal
+                )
+                
+                # Skip if decision is to hold
+                if decision == "hold":
+                    logging.info(f"Decision for {symbol} is to hold. Skipping trade execution.")
+                    continue
+                
+                # Get AI validation if Redis is available
+                validated = False
+                validation_confidence = 0.0
+                
+                if redis_client:
+                    validation_result = self._get_ai_validation(trade_data)
+                    validated = validation_result.get('validated', False)
+                    validation_confidence = validation_result.get('confidence', 0.0)
+                    
+                    # Update signal with validation results
+                    self._update_signal_validation(signal_id, validated, validation_confidence)
+                    
+                    if not validated:
+                        reason = validation_result.get('reason', 'Failed AI validation')
+                        logging.info(f"Trade for {symbol} rejected: {reason}")
+                        self.telegram_bot.send_message(f"Trade rejected for {symbol}: {reason}")
+                        continue
+                
+                # If validated (or no validation required), execute the trade
+                self.execute_trade(decision, symbol, current_price, tp, sl, validated, validation_confidence)
+                
+                # Store in latest signals
                 self.latest_signals.append({
                     'symbol': symbol,
                     'timestamp': datetime.now().isoformat(),
@@ -354,12 +486,117 @@ class TradingBot:
                     'tp': tp,
                     'sl': sl,
                     'sentiment_score': sentiment_score,
-                    'rl_signal': rl_signal
+                    'rl_signal': rl_signal,
+                    'validated': validated,
+                    'validation_confidence': validation_confidence
                 })
                 
             except Exception as e:
                 logging.error(f"Error executing trades for {symbol}: {e}")
                 continue
+    
+    def _get_ai_validation(self, trade_data: Dict) -> Dict:
+        """Get validation from the AI validation service"""
+        try:
+            # Set channels
+            request_channel = 'trade_requests'
+            response_channel = 'trade_responses'
+            request_id = trade_data['request_id']
+            
+            # Create pubsub to listen for response
+            pubsub = redis_client.pubsub()
+            pubsub.subscribe(response_channel)
+            
+            # Send trade request
+            redis_client.publish(request_channel, json.dumps(trade_data))
+            logging.info(f"Sent trade request for validation: {request_id}")
+            
+            # Wait for response with timeout
+            start_time = time.time()
+            timeout = 30  # 30 seconds timeout
+            
+            while time.time() - start_time < timeout:
+                message = pubsub.get_message(timeout=1.0)
+                if message and message['type'] == 'message':
+                    response = json.loads(message['data'])
+                    if response.get('request_id') == request_id:
+                        logging.info(f"Received validation response: {response}")
+                        pubsub.unsubscribe()
+                        return response
+                        
+            pubsub.unsubscribe()
+            logging.warning(f"Timeout waiting for validation response for request: {request_id}")
+            return {
+                'validated': False,
+                'confidence': 0.0,
+                'reason': 'Validation timeout'
+            }
+            
+        except Exception as e:
+            logging.error(f"Error getting AI validation: {e}")
+            return {
+                'validated': False,
+                'confidence': 0.0,
+                'reason': f'Validation error: {str(e)}'
+            }
+            
+    def _store_signal(self, symbol: str, decision: str, predicted_price: float,
+                     risk_score: float, tp: float, sl: float, 
+                     sentiment_score: Optional[float] = None,
+                     rl_signal: Optional[float] = None) -> int:
+        """Store trading signal in the database"""
+        try:
+            conn = get_db_connection()
+            if conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO trading_signals 
+                        (symbol, timestamp, decision, predicted_price, risk_score, tp, sl, sentiment_score, rl_signal)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        RETURNING id
+                        """,
+                        (
+                            symbol,
+                            datetime.now(),
+                            decision,
+                            predicted_price,
+                            risk_score,
+                            tp,
+                            sl,
+                            sentiment_score,
+                            rl_signal
+                        )
+                    )
+                    signal_id = cursor.fetchone()[0]
+                    conn.commit()
+                conn.close()
+                return signal_id
+        except Exception as e:
+            logging.error(f"Error storing signal: {e}")
+        return -1
+        
+    def _update_signal_validation(self, signal_id: int, validated: bool, confidence: float) -> None:
+        """Update signal with validation results"""
+        if signal_id <= 0:
+            return
+            
+        try:
+            conn = get_db_connection()
+            if conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        UPDATE trading_signals
+                        SET validated = %s, validation_confidence = %s
+                        WHERE id = %s
+                        """,
+                        (validated, confidence, signal_id)
+                    )
+                    conn.commit()
+                conn.close()
+        except Exception as e:
+            logging.error(f"Error updating signal validation: {e}")
 
     def combine_signals(self, predicted_price: float, indicator_signal: float, 
                        risk_score: float, tp: float, sl: float, 
@@ -411,7 +648,9 @@ class TradingBot:
             logging.error(f"Error in combine_signals: {e}")
             return "hold"
 
-    def execute_trade(self, decision: str, symbol: str, predicted_price: float, tp: float, sl: float):
+    def execute_trade(self, decision: str, symbol: str, current_price: float, 
+                     tp: float, sl: float, validated: bool = True, 
+                     validation_confidence: float = 0.0):
         """Execute a trade decision"""
         try:
             # Calculate position size
@@ -421,44 +660,62 @@ class TradingBot:
             message = (
                 f"Trading Decision for {symbol}:\n"
                 f"Action: {decision}\n"
-                f"Entry Price: ${predicted_price:.2f}\n"
+                f"Entry Price: ${current_price:.2f}\n"
                 f"Take Profit: ${tp:.2f}\n"
                 f"Stop Loss: ${sl:.2f}\n"
                 f"Position Size: {position_size:.2f} units\n"
+                f"AI Validated: {validated}\n"
+                f"Confidence: {validation_confidence:.2f}\n"
             )
             
-            # Execute trade based on decision
-            if decision == "buy" and position_size > 0:
-                if symbol in self.positions:
-                    logging.info(f"Already holding position in {symbol}")
-                else:
-                    self.positions[symbol] = {
-                        'type': 'long',
-                        'entry_price': predicted_price,
-                        'size': position_size,
-                        'tp': tp,
-                        'sl': sl,
-                        'entry_time': datetime.now()
-                    }
-                    self.balance -= predicted_price * position_size
-                    message += "\nAction taken: Long position opened"
-                    
-            elif decision == "sell" and position_size > 0:
-                if symbol in self.positions:
-                    logging.info(f"Already holding position in {symbol}")
-                else:
-                    self.positions[symbol] = {
-                        'type': 'short',
-                        'entry_price': predicted_price,
-                        'size': position_size,
-                        'tp': tp,
-                        'sl': sl,
-                        'entry_time': datetime.now()
-                    }
-                    message += "\nAction taken: Short position opened"
+            # Check if trading is enabled
+            trading_enabled = self._get_bot_setting('trading_enabled') == 'true'
             
+            # Execute trade based on decision
+            if trading_enabled:
+                if decision == "buy" and position_size > 0:
+                    if symbol in self.positions:
+                        logging.info(f"Already holding position in {symbol}")
+                    else:
+                        self.positions[symbol] = {
+                            'type': 'long',
+                            'entry_price': current_price,
+                            'size': position_size,
+                            'tp': tp,
+                            'sl': sl,
+                            'entry_time': datetime.now(),
+                            'validated': validated,
+                            'validation_confidence': validation_confidence
+                        }
+                        self.balance -= current_price * position_size
+                        message += "\nAction taken: Long position opened"
+                        
+                        # Store in database
+                        self._store_trade_entry(symbol, 'long', current_price, position_size, tp, sl, validated, validation_confidence)
+                        
+                elif decision == "sell" and position_size > 0:
+                    if symbol in self.positions:
+                        logging.info(f"Already holding position in {symbol}")
+                    else:
+                        self.positions[symbol] = {
+                            'type': 'short',
+                            'entry_price': current_price,
+                            'size': position_size,
+                            'tp': tp,
+                            'sl': sl,
+                            'entry_time': datetime.now(),
+                            'validated': validated,
+                            'validation_confidence': validation_confidence
+                        }
+                        message += "\nAction taken: Short position opened"
+                        
+                        # Store in database
+                        self._store_trade_entry(symbol, 'short', current_price, position_size, tp, sl, validated, validation_confidence)
+                
+                else:
+                    message += "\nAction taken: Holding"
             else:
-                message += "\nAction taken: Holding"
+                message += "\nTrading is disabled. This is a simulated trade."
             
             # Log trade
             logging.info(message)
@@ -469,16 +726,71 @@ class TradingBot:
                 'symbol': symbol,
                 'timestamp': datetime.now().isoformat(),
                 'action': decision,
-                'price': predicted_price,
+                'price': current_price,
                 'size': position_size if decision in ['buy', 'sell'] else 0,
                 'tp': tp,
-                'sl': sl
+                'sl': sl,
+                'validated': validated,
+                'validation_confidence': validation_confidence
             })
             
         except Exception as e:
             error_message = f"Error executing trade for {symbol}: {e}"
             logging.error(error_message)
             self.telegram_bot.send_message(error_message)
+            
+    def _store_trade_entry(self, symbol: str, trade_type: str, entry_price: float, 
+                          size: float, tp: float, sl: float, 
+                          validated: bool, validation_confidence: float) -> None:
+        """Store trade entry in the database"""
+        try:
+            conn = get_db_connection()
+            if conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO trade_history 
+                        (symbol, entry_time, entry_price, type, size, validated, validation_confidence)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            symbol,
+                            datetime.now(),
+                            entry_price,
+                            trade_type,
+                            size,
+                            validated,
+                            validation_confidence
+                        )
+                    )
+                    conn.commit()
+                conn.close()
+        except Exception as e:
+            logging.error(f"Error storing trade entry: {e}")
+            
+    def _get_bot_setting(self, setting_key: str, default_value: str = '') -> str:
+        """Get a bot setting from the database"""
+        try:
+            conn = get_db_connection()
+            if conn:
+                with conn.cursor(cursor_factory=DictCursor) as cursor:
+                    cursor.execute(
+                        """
+                        SELECT setting_value FROM bot_settings 
+                        WHERE setting_key = %s
+                        """,
+                        (setting_key,)
+                    )
+                    result = cursor.fetchone()
+                conn.close()
+                
+                if result:
+                    return result['setting_value']
+                    
+        except Exception as e:
+            logging.error(f"Error getting bot setting: {e}")
+            
+        return default_value
 
     def manage_open_positions(self, data_manager: DataManager):
         """Manage and monitor open positions"""
@@ -534,6 +846,10 @@ class TradingBot:
                 'reason': reason
             })
             
+            # Update in database
+            self._store_trade_exit(symbol, position['entry_time'], datetime.now(), 
+                                  current_price, pnl, reason)
+            
             # Notify
             message = (
                 f"Position Closed - {symbol}\n"
@@ -551,6 +867,33 @@ class TradingBot:
             
         except Exception as e:
             logging.error(f"Error closing position for {symbol}: {e}")
+            
+    def _store_trade_exit(self, symbol: str, entry_time: datetime, exit_time: datetime, 
+                         exit_price: float, pnl: float, reason: str) -> None:
+        """Store trade exit in the database"""
+        try:
+            conn = get_db_connection()
+            if conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        UPDATE trade_history
+                        SET exit_time = %s, exit_price = %s, pnl = %s, reason = %s
+                        WHERE symbol = %s AND entry_time = %s
+                        """,
+                        (
+                            exit_time,
+                            exit_price,
+                            pnl,
+                            reason,
+                            symbol,
+                            entry_time
+                        )
+                    )
+                    conn.commit()
+                conn.close()
+        except Exception as e:
+            logging.error(f"Error storing trade exit: {e}")
 
     def _update_trailing_stop(self, symbol: str, current_price: float, position: Dict):
         """Update trailing stop loss if applicable"""
@@ -575,11 +918,28 @@ class TradingBot:
         """Start real-time market scanning and trading"""
         logging.info(f"Starting real-time market scanning every {interval_seconds} seconds.")
         
+        # Create data directory if it doesn't exist
+        os.makedirs('logs', exist_ok=True)
+        
         def scan_and_trade():
             try:
                 logging.info("Scanning market for opportunities...")
+                
+                # Update market data
+                data_manager.update_data()
+                
+                # Store market snapshots
+                self._store_market_snapshots(data_manager)
+                
+                # Execute trades based on signals
                 self.execute_trades(data_manager)
+                
+                # Manage open positions
                 self.manage_open_positions(data_manager)
+                
+                # Calculate and store performance metrics
+                self._calculate_and_store_metrics()
+                
             except Exception as e:
                 logging.error(f"Error in scan_and_trade: {e}")
         
@@ -592,6 +952,155 @@ class TradingBot:
             except Exception as e:
                 logging.error(f"Error in scanning loop: {e}")
                 time.sleep(60)  # Wait before retrying
+                
+    def _store_market_snapshots(self, data_manager: DataManager) -> None:
+        """Store market data snapshots in the database"""
+        try:
+            conn = get_db_connection()
+            if conn:
+                with conn.cursor() as cursor:
+                    for symbol, data in data_manager.data.items():
+                        last_row = data.iloc[-1]
+                        cursor.execute(
+                            """
+                            INSERT INTO market_data 
+                            (symbol, timestamp, open, high, low, close, volume, sma_20, sma_50, rsi, macd, bb_upper, bb_lower)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            """,
+                            (
+                                symbol,
+                                datetime.now(),
+                                float(last_row['Open']),
+                                float(last_row['High']),
+                                float(last_row['Low']),
+                                float(last_row['Close']),
+                                int(last_row['Volume']),
+                                float(last_row.get('SMA_20', 0)),
+                                float(last_row.get('SMA_50', 0)),
+                                float(last_row.get('RSI', 0)),
+                                float(last_row.get('MACD', 0)),
+                                float(last_row.get('Bollinger_Upper', 0)),
+                                float(last_row.get('Bollinger_Lower', 0))
+                            )
+                        )
+                    conn.commit()
+                conn.close()
+        except Exception as e:
+            logging.error(f"Error storing market snapshots: {e}")
+            
+    def _calculate_and_store_metrics(self) -> None:
+        """Calculate and store performance metrics"""
+        try:
+            today = datetime.now().date()
+            
+            # Calculate today's performance
+            today_trades = [t for t in self.trade_history 
+                           if 'exit_time' in t and t['exit_time'].date() == today]
+            
+            if not today_trades:
+                return
+                
+            # Calculate metrics
+            daily_pnl = sum(t['pnl'] for t in today_trades)
+            winning_trades = sum(1 for t in today_trades if t['pnl'] > 0)
+            losing_trades = sum(1 for t in today_trades if t['pnl'] <= 0)
+            total_trades = len(today_trades)
+            
+            if winning_trades > 0:
+                average_win = sum(t['pnl'] for t in today_trades if t['pnl'] > 0) / winning_trades
+            else:
+                average_win = 0
+                
+            if losing_trades > 0:
+                average_loss = sum(abs(t['pnl']) for t in today_trades if t['pnl'] <= 0) / losing_trades
+            else:
+                average_loss = 0
+                
+            # Calculate advanced metrics
+            win_rate = winning_trades / total_trades if total_trades > 0 else 0
+            
+            if average_loss > 0:
+                profit_factor = average_win / average_loss if average_loss > 0 else 0
+            else:
+                profit_factor = float('inf') if average_win > 0 else 0
+            
+            # Equity = current balance + value of open positions
+            equity = self.balance
+            for symbol, position in self.positions.items():
+                current_price = self.data_manager.data[symbol]['Close'].iloc[-1]
+                position_value = position['size'] * current_price
+                equity += position_value
+                
+            # Store metrics in database
+            self._store_performance_metrics(
+                date=today,
+                balance=self.balance,
+                equity=equity,
+                daily_pnl=daily_pnl,
+                total_trades=total_trades,
+                winning_trades=winning_trades,
+                losing_trades=losing_trades,
+                win_rate=win_rate,
+                average_win=average_win,
+                average_loss=average_loss,
+                profit_factor=profit_factor
+            )
+            
+        except Exception as e:
+            logging.error(f"Error calculating performance metrics: {e}")
+            
+    def _store_performance_metrics(self, date, balance, equity, daily_pnl, total_trades,
+                                 winning_trades, losing_trades, win_rate, average_win,
+                                 average_loss, profit_factor):
+        """Store performance metrics in the database"""
+        try:
+            conn = get_db_connection()
+            if conn:
+                with conn.cursor() as cursor:
+                    # Check if we already have a record for today
+                    cursor.execute(
+                        "SELECT id FROM performance_metrics WHERE date = %s",
+                        (date,)
+                    )
+                    result = cursor.fetchone()
+                    
+                    if result:
+                        # Update existing record
+                        cursor.execute(
+                            """
+                            UPDATE performance_metrics
+                            SET balance = %s, equity = %s, daily_pnl = %s,
+                                total_trades = %s, winning_trades = %s, losing_trades = %s,
+                                win_rate = %s, average_win = %s, average_loss = %s,
+                                profit_factor = %s, updated_at = %s
+                            WHERE date = %s
+                            """,
+                            (
+                                balance, equity, daily_pnl,
+                                total_trades, winning_trades, losing_trades,
+                                win_rate, average_win, average_loss,
+                                profit_factor, datetime.now(), date
+                            )
+                        )
+                    else:
+                        # Insert new record
+                        cursor.execute(
+                            """
+                            INSERT INTO performance_metrics
+                            (date, balance, equity, daily_pnl, total_trades, winning_trades,
+                            losing_trades, win_rate, average_win, average_loss, profit_factor)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            """,
+                            (
+                                date, balance, equity, daily_pnl,
+                                total_trades, winning_trades, losing_trades,
+                                win_rate, average_win, average_loss, profit_factor
+                            )
+                        )
+                    conn.commit()
+                conn.close()
+        except Exception as e:
+            logging.error(f"Error storing performance metrics: {e}")
 
 if __name__ == "__main__":
     try:

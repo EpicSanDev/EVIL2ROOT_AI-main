@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <h1>Bot Settings</h1>
+    
+    {% if success_message %}
+    <div class="alert success">
+        {{ success_message }}
+    </div>
+    {% endif %}
+    
+    {% if error_message %}
+    <div class="alert error">
+        {{ error_message }}
+    </div>
+    {% endif %}
+    
+    <div class="settings-container">
+        <form method="POST" action="/settings">
+            <div class="settings-section">
+                <h2>Trading Parameters</h2>
+                
+                <div class="form-group">
+                    <label for="initial_balance">Initial Balance ($):</label>
+                    <input type="number" id="initial_balance" name="initial_balance" value="{{ settings.initial_balance }}" min="1000" step="1000">
+                </div>
+                
+                <div class="form-group">
+                    <label for="risk_per_trade">Risk Per Trade (%):</label>
+                    <input type="number" id="risk_per_trade" name="risk_per_trade" value="{{ settings.risk_per_trade }}" min="0.01" max="0.1" step="0.01">
+                    <span class="help-text">Recommended: 1-5%</span>
+                </div>
+                
+                <div class="form-group">
+                    <label for="max_positions">Maximum Positions:</label>
+                    <input type="number" id="max_positions" name="max_positions" value="{{ settings.max_positions }}" min="1" max="20">
+                </div>
+                
+                <div class="form-group">
+                    <label for="confidence_threshold">AI Confidence Threshold:</label>
+                    <input type="number" id="confidence_threshold" name="confidence_threshold" value="{{ settings.confidence_threshold }}" min="0.5" max="0.95" step="0.05">
+                    <span class="help-text">Higher values = fewer but more confident trades</span>
+                </div>
+                
+                <div class="form-group checkbox">
+                    <input type="checkbox" id="enable_live_trading" name="enable_live_trading" {% if settings.enable_live_trading %}checked{% endif %}>
+                    <label for="enable_live_trading">Enable Live Trading</label>
+                </div>
+            </div>
+            
+            <div class="settings-section">
+                <h2>Trading Assets</h2>
+                
+                <div class="form-group">
+                    <label for="symbols">Trading Symbols (comma-separated):</label>
+                    <textarea id="symbols" name="symbols" rows="3">{{ settings.symbols }}</textarea>
+                    <span class="help-text">Example: AAPL,GOOGL,MSFT,BTC-USD,ETH-USD</span>
+                </div>
+            </div>
+            
+            <div class="settings-section">
+                <h2>Update Intervals</h2>
+                
+                <div class="form-group">
+                    <label for="data_update_interval">Data Update Interval (minutes):</label>
+                    <input type="number" id="data_update_interval" name="data_update_interval" value="{{ settings.data_update_interval }}" min="1" max="60">
+                </div>
+                
+                <div class="form-group">
+                    <label for="scanning_interval">Trading Scan Interval (minutes):</label>
+                    <input type="number" id="scanning_interval" name="scanning_interval" value="{{ settings.scanning_interval }}" min="1" max="120">
+                </div>
+            </div>
+            
+            <div class="settings-section">
+                <h2>Notifications</h2>
+                
+                <div class="form-group">
+                    <label for="telegram_token">Telegram Bot Token:</label>
+                    <input type="text" id="telegram_token" name="telegram_token" value="{{ settings.telegram_token }}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="telegram_chat_id">Telegram Chat ID:</label>
+                    <input type="text" id="telegram_chat_id" name="telegram_chat_id" value="{{ settings.telegram_chat_id }}">
+                </div>
+            </div>
+            
+            <div class="form-actions">
+                <button type="submit" class="button primary">Save Settings</button>
+                <a href="/" class="button secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+{% endblock %} 
