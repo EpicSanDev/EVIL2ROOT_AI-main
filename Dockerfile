@@ -33,7 +33,7 @@ RUN grep -v "plotly\|dash" requirements.txt > requirements-filtered.txt \
     && pip install --no-cache-dir -r requirements-filtered.txt
 
 # Install additional dependencies for analysis bot
-RUN pip install --no-cache-dir python-telegram-bot==20.6 asyncio==3.4.3 schedule==1.2.0 openrouter==0.3.0
+RUN pip install --no-cache-dir python-telegram-bot==20.6 asyncio==3.4.3 schedule==1.2.0 openai
 
 # Copy application code
 COPY . .
