@@ -13,6 +13,9 @@ import os
 from dotenv import load_dotenv
 import psycopg2
 import logging
+from app.plugins import plugin_manager
+import tempfile
+from flask_login import login_required
 
 # Configuration des templates Plotly pour optimiser le temps de rendu
 # Utiliser des templates minimalistes pour réduire le temps de génération
@@ -1097,3 +1100,173 @@ def api_system_cpu():
             'memory_used': 0,
             'memory_total': 0
         })
+
+@main_blueprint.route('/plugins')
+@login_required
+def plugins_page():
+    """Page d'administration des plugins"""
+    try:
+        # Récupérer la liste des plugins installés
+        installed_plugins = plugin_manager.get_installed_plugins()
+        
+        # Récupérer la liste des plugins disponibles
+        available_plugins = plugin_manager.discover_plugins()
+        
+        # Fusionner les listes pour éviter les doublons
+        available_ids = {plugin["id"] for plugin in available_plugins}
+        installed_ids = {plugin["id"] for plugin in installed_plugins}
+        
+        # Liste des plugins découverts mais non installés
+        discoverable_plugins = [p for p in available_plugins if p["id"] not in installed_ids]
+        
+        return render_template(
+            'plugins.html',
+            installed_plugins=installed_plugins,
+            discoverable_plugins=discoverable_plugins,
+            title="Gestion des Plugins"
+        )
+    except Exception as e:
+        logging.error(f"Erreur lors du chargement de la page des plugins: {e}")
+        flash(f"Erreur lors du chargement des plugins: {str(e)}", "danger")
+        return redirect(url_for('main.index'))
+
+@main_blueprint.route('/api/plugins/enable/<plugin_id>', methods=['POST'])
+@login_required
+def enable_plugin(plugin_id):
+    """Active un plugin"""
+    try:
+        result = plugin_manager.enable_plugin(plugin_id)
+        if result:
+            flash(f"Plugin {plugin_id} activé avec succès", "success")
+        else:
+            flash(f"Erreur lors de l'activation du plugin {plugin_id}", "danger")
+    except Exception as e:
+        logging.error(f"Erreur lors de l'activation du plugin {plugin_id}: {e}")
+        flash(f"Erreur lors de l'activation du plugin: {str(e)}", "danger")
+    
+    return redirect(url_for('main.plugins_page'))
+
+@main_blueprint.route('/api/plugins/disable/<plugin_id>', methods=['POST'])
+@login_required
+def disable_plugin(plugin_id):
+    """Désactive un plugin"""
+    try:
+        result = plugin_manager.disable_plugin(plugin_id)
+        if result:
+            flash(f"Plugin {plugin_id} désactivé avec succès", "success")
+        else:
+            flash(f"Erreur lors de la désactivation du plugin {plugin_id}", "danger")
+    except Exception as e:
+        logging.error(f"Erreur lors de la désactivation du plugin {plugin_id}: {e}")
+        flash(f"Erreur lors de la désactivation du plugin: {str(e)}", "danger")
+    
+    return redirect(url_for('main.plugins_page'))
+
+@main_blueprint.route('/api/plugins/uninstall/<plugin_id>', methods=['POST'])
+@login_required
+def uninstall_plugin(plugin_id):
+    """Désinstalle un plugin"""
+    try:
+        result = plugin_manager.uninstall_plugin(plugin_id)
+        if result:
+            flash(f"Plugin {plugin_id} désinstallé avec succès", "success")
+        else:
+            flash(f"Erreur lors de la désinstallation du plugin {plugin_id}", "danger")
+    except Exception as e:
+        logging.error(f"Erreur lors de la désinstallation du plugin {plugin_id}: {e}")
+        flash(f"Erreur lors de la désinstallation du plugin: {str(e)}", "danger")
+    
+    return redirect(url_for('main.plugins_page'))
+
+@main_blueprint.route('/api/plugins/install', methods=['POST'])
+@login_required
+def install_plugin():
+    """Installe un plugin à partir d'un fichier ZIP"""
+    if 'plugin_file' not in request.files:
+        flash("Aucun fichier fourni", "danger")
+        return redirect(url_for('main.plugins_page'))
+    
+    plugin_file = request.files['plugin_file']
+    
+    if plugin_file.filename == '':
+        flash("Aucun fichier sélectionné", "danger")
+        return redirect(url_for('main.plugins_page'))
+    
+    if not plugin_file.filename.endswith('.zip'):
+        flash("Le fichier doit être au format ZIP", "danger")
+        return redirect(url_for('main.plugins_page'))
+    
+    try:
+        # Sauvegarder le fichier temporairement
+        temp_path = tempfile.mktemp(suffix='.zip')
+        plugin_file.save(temp_path)
+        
+        # Installer le plugin
+        plugin_id = plugin_manager.install_plugin(temp_path)
+        
+        # Supprimer le fichier temporaire
+        os.unlink(temp_path)
+        
+        if plugin_id:
+            flash(f"Plugin {plugin_id} installé avec succès", "success")
+        else:
+            flash("Erreur lors de l'installation du plugin", "danger")
+    
+    except Exception as e:
+        logging.error(f"Erreur lors de l'installation du plugin: {e}")
+        flash(f"Erreur lors de l'installation du plugin: {str(e)}", "danger")
+    
+    return redirect(url_for('main.plugins_page'))
+
+@main_blueprint.route('/api/plugins/settings/<plugin_id>', methods=['GET', 'POST'])
+@login_required
+def plugin_settings(plugin_id):
+    """Gère les paramètres d'un plugin"""
+    # Vérifier si le plugin existe
+    if plugin_id not in plugin_manager.plugins:
+        flash(f"Plugin {plugin_id} non trouvé", "danger")
+        return redirect(url_for('main.plugins_page'))
+    
+    plugin = plugin_manager.plugins[plugin_id]
+    
+    if request.method == 'POST':
+        try:
+            # Récupérer et mettre à jour les paramètres
+            settings = {}
+            for key, value in request.form.items():
+                if key.startswith('setting_'):
+                    setting_name = key[8:]  # Supprimer le préfixe 'setting_'
+                    
+                    # Convertir le type de valeur si nécessaire
+                    if value.lower() == 'true':
+                        settings[setting_name] = True
+                    elif value.lower() == 'false':
+                        settings[setting_name] = False
+                    elif value.isdigit():
+                        settings[setting_name] = int(value)
+                    elif value.replace('.', '', 1).isdigit():
+                        settings[setting_name] = float(value)
+                    else:
+                        settings[setting_name] = value
+            
+            # Mettre à jour les paramètres du plugin
+            plugin.setup(settings)
+            
+            flash(f"Paramètres du plugin {plugin_id} mis à jour avec succès", "success")
+            return redirect(url_for('main.plugins_page'))
+            
+        except Exception as e:
+            logging.error(f"Erreur lors de la mise à jour des paramètres du plugin {plugin_id}: {e}")
+            flash(f"Erreur lors de la mise à jour des paramètres: {str(e)}", "danger")
+    
+    # Récupérer les paramètres actuels et par défaut
+    current_settings = plugin.get_settings()
+    default_settings = plugin.get_default_settings()
+    
+    return render_template(
+        'plugin_settings.html',
+        plugin=plugin,
+        current_settings=current_settings,
+        default_settings=default_settings,
+        title=f"Paramètres du plugin {plugin.plugin_name}"
+    )

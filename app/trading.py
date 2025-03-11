@@ -25,6 +25,8 @@ from app.models.backtesting import run_backtest
 from app.telegram_bot import TelegramBot
 from app.model_trainer import ModelTrainer
 from app.models.news_retrieval import NewsRetriever
+from app.plugins import plugin_manager
+from app.plugins.events import EventType, NewsEventType
 
 # Load environment variables
 load_dotenv()
@@ -250,6 +252,19 @@ class TradingBot:
         else:
             logging.info("Using provided model trainer")
         
+        # Initialize plugin system
+        self.plugin_manager = plugin_manager
+        
+        # Load enabled plugins
+        self.plugin_manager.load_all_enabled_plugins()
+        
+        # Trigger system startup event
+        self.plugin_manager.trigger_event(
+            str(EventType.SYSTEM_STARTUP),
+            config=self.config,
+            timestamp=datetime.now()
+        )
+        
         self._load_models()
         logger.info(f"TradingBot initialized with ${initial_balance} balance")
         logger.info(f"Transformer model is {'enabled' if self.enable_transformer else 'disabled'}")
@@ -409,10 +424,34 @@ class TradingBot:
             # Initialiser le récupérateur de news
             news_retriever = NewsRetriever()
             
-            # Récupérer les headlines via notre nouveau module (combinant OpenRouter et Perplexity)
-            headlines = news_retriever.get_news_headlines(symbol, max_results=15)
+            # Trigger before news fetch event
+            self.plugin_manager.trigger_event(
+                str(NewsEventType.BEFORE_NEWS_FETCH),
+                symbol=symbol,
+                sources=["openrouter", "perplexity", "apis"],
+                max_results=15
+            )
             
-            if not headlines:
+            # Récupérer les news complètes avec des données de sentiment pré-analysées
+            news_data = news_retriever.get_news_with_sentiment_data(symbol, max_results=15)
+            
+            # Trigger after news fetch event (let plugins modify the news data)
+            news_event_results = self.plugin_manager.trigger_event(
+                str(NewsEventType.AFTER_NEWS_FETCH),
+                symbol=symbol,
+                news=news_data,
+                sources=["openrouter", "perplexity", "apis"],
+                timestamp=datetime.now()
+            )
+            
+            # If any plugin returned modified news data, use it
+            if news_event_results:
+                for result in news_event_results:
+                    if result is not None and isinstance(result, list) and len(result) > 0:
+                        news_data = result
+                        break
+            
+            if not news_data:
                 # Fallback à yfinance si aucune headline n'est trouvée
                 logging.warning(f"Aucune news trouvée via APIs pour {symbol}, essai avec yfinance")
                 try:
@@ -420,21 +459,91 @@ class TradingBot:
                     news = ticker.news
                     if news:
                         headlines = [item['title'] for item in news[:10]]
+                        # Analyze sentiment from headlines only
+                        sentiment_results = self.sentiment_analyzer.analyze_market_sentiment(headlines)
+                        logging.info(f"Sentiment analysis for {symbol} (yfinance fallback): {sentiment_results}")
+                        return sentiment_results['score']
                 except Exception as e:
                     logging.error(f"Erreur lors de la récupération des news via yfinance: {e}")
             
-            if not headlines:
+            if not news_data:
                 logging.warning(f"No news found for {symbol}")
                 return 0.0
             
-            # Log des headlines récupérées pour debug
-            logging.info(f"Headlines récupérées pour {symbol}: {headlines[:5]}...")
+            # Log des données récupérées pour debug
+            logging.info(f"News récupérées pour {symbol}: {len(news_data)} articles")
             
-            # Analyze sentiment
-            sentiment_results = self.sentiment_analyzer.analyze_market_sentiment(headlines)
+            # Extraire les titres et textes complets pour une analyse plus riche
+            headlines = [item['title'] for item in news_data]
+            full_texts = [item.get('full_text', item['title']) for item in news_data]
+            
+            # Utiliser les scores pré-calculés pour enrichir l'analyse
+            pre_sentiment_scores = [item.get('sentiment_score', 0.0) for item in news_data]
+            relevance_scores = [item.get('relevance_score', 0.5) for item in news_data]
+            
+            # Trigger before sentiment analysis event
+            sentiment_params_results = self.plugin_manager.trigger_event(
+                str(NewsEventType.BEFORE_SENTIMENT_ANALYSIS),
+                symbol=symbol,
+                news=news_data,
+                analysis_method="ensemble"
+            )
+            
+            # Apply any modifications to the analysis parameters
+            analysis_method = "ensemble"
+            if sentiment_params_results:
+                for result in sentiment_params_results:
+                    if result is not None and isinstance(result, dict):
+                        if "news" in result:
+                            news_data = result["news"]
+                            # Update extracted data if news has been modified
+                            headlines = [item['title'] for item in news_data]
+                            full_texts = [item.get('full_text', item['title']) for item in news_data]
+                            pre_sentiment_scores = [item.get('sentiment_score', 0.0) for item in news_data]
+                            relevance_scores = [item.get('relevance_score', 0.5) for item in news_data]
+                        
+                        if "analysis_method" in result:
+                            analysis_method = result["analysis_method"]
+            
+            # Analyze sentiment with comprehensive data
+            sentiment_results = self.sentiment_analyzer.analyze_market_sentiment(
+                headlines=headlines,
+                full_texts=full_texts,
+                pre_calculated_scores=pre_sentiment_scores,
+                relevance_weights=relevance_scores
+            )
+            
+            # Trigger after sentiment analysis event
+            enhanced_results = self.plugin_manager.trigger_event(
+                str(NewsEventType.AFTER_SENTIMENT_ANALYSIS),
+                symbol=symbol,
+                news=news_data,
+                sentiment_results=sentiment_results,
+                overall_score=sentiment_results['score']
+            )
+            
+            # Apply any enhancements to the sentiment results
+            if enhanced_results:
+                for result in enhanced_results:
+                    if result is not None and isinstance(result, dict) and "adjusted_score" in result:
+                        sentiment_results = result
+                        logging.info(f"Sentiment analysis enhanced by plugin: {result.get('enhanced_by', 'unknown')}")
+            
             logging.info(f"Sentiment analysis for {symbol}: {sentiment_results}")
             
-            return sentiment_results['overall_score']
+            # Use adjusted score if available
+            final_score = sentiment_results.get('adjusted_score', sentiment_results['score'])
+            
+            # Trigger sentiment analyzed event
+            self.plugin_manager.trigger_event(
+                str(EventType.SENTIMENT_ANALYZED),
+                symbol=symbol,
+                sentiment_score=final_score,
+                news=news_data,
+                details=sentiment_results
+            )
+            
+            return final_score
             
         except Exception as e:
             logging.error(f"Error in sentiment analysis for {symbol}: {e}")

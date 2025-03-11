@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="mb-3">
+                <i class="fas fa-cogs me-2"></i> Paramètres du plugin: {{ plugin.plugin_name }}
+            </h1>
+            <p class="lead">{{ plugin.plugin_description }}</p>
+            
+            <div class="d-flex mb-4">
+                <span class="badge bg-primary me-2">Version: {{ plugin.plugin_version }}</span>
+                <span class="badge bg-secondary me-2">ID: {{ plugin.plugin_id }}</span>
+                <span class="badge bg-info">Auteur: {{ plugin.plugin_author }}</span>
+            </div>
+            
+            <a href="{{ url_for('main.plugins_page') }}" class="btn btn-outline-secondary mb-4">
+                <i class="fas fa-arrow-left me-2"></i> Retour à la liste des plugins
+            </a>
+        </div>
+    </div>
+
+    <!-- Alertes pour les messages flash -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <!-- Formulaire des paramètres -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">Configuration</h5>
+                </div>
+                <div class="card-body">
+                    <form action="{{ url_for('main.plugin_settings', plugin_id=plugin.plugin_id) }}" method="post">
+                        {% if current_settings %}
+                            {% for key, value in current_settings.items() %}
+                                <div class="mb-3">
+                                    {% if value is boolean %}
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" id="setting_{{ key }}" 
+                                                  name="setting_{{ key }}" {% if value %}checked{% endif %}>
+                                            <label class="form-check-label" for="setting_{{ key }}">
+                                                {{ key|replace('_', ' ')|title }}
+                                            </label>
+                                        </div>
+                                    {% elif value is number %}
+                                        <label for="setting_{{ key }}" class="form-label">
+                                            {{ key|replace('_', ' ')|title }}
+                                        </label>
+                                        <input type="number" class="form-control" id="setting_{{ key }}" 
+                                               name="setting_{{ key }}" value="{{ value }}" step="any">
+                                    {% elif value is mapping %}
+                                        <label class="form-label">{{ key|replace('_', ' ')|title }}</label>
+                                        <div class="card mb-2">
+                                            <div class="card-body">
+                                                {% for subkey, subvalue in value.items() %}
+                                                    <div class="mb-3">
+                                                        <label for="setting_{{ key }}_{{ subkey }}" class="form-label">
+                                                            {{ subkey|replace('_', ' ')|title }}
+                                                        </label>
+                                                        {% if subvalue is string %}
+                                                            <input type="text" class="form-control" 
+                                                                   id="setting_{{ key }}_{{ subkey }}" 
+                                                                   name="setting_{{ key }}_{{ subkey }}" 
+                                                                   value="{{ subvalue }}">
+                                                        {% elif subvalue is sequence and subvalue is not string %}
+                                                            <textarea class="form-control" 
+                                                                      id="setting_{{ key }}_{{ subkey }}" 
+                                                                      name="setting_{{ key }}_{{ subkey }}" 
+                                                                      rows="3">{{ subvalue|join(', ') }}</textarea>
+                                                            <div class="form-text">
+                                                                Séparez les valeurs par des virgules
+                                                            </div>
+                                                        {% endif %}
+                                                    </div>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    {% elif value is sequence and value is not string %}
+                                        <label for="setting_{{ key }}" class="form-label">
+                                            {{ key|replace('_', ' ')|title }}
+                                        </label>
+                                        <textarea class="form-control" id="setting_{{ key }}" 
+                                                  name="setting_{{ key }}" rows="3">{{ value|join(', ') }}</textarea>
+                                        <div class="form-text">
+                                            Séparez les valeurs par des virgules
+                                        </div>
+                                    {% else %}
+                                        <label for="setting_{{ key }}" class="form-label">
+                                            {{ key|replace('_', ' ')|title }}
+                                        </label>
+                                        <input type="text" class="form-control" id="setting_{{ key }}" 
+                                               name="setting_{{ key }}" value="{{ value }}">
+                                    {% endif %}
+                                    
+                                    {% if key in default_settings and default_settings[key] != value %}
+                                        <div class="form-text text-muted">
+                                            Valeur par défaut: {{ default_settings[key] }}
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+                            
+                            <div class="d-flex justify-content-between">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-save me-2"></i> Enregistrer les modifications
+                                </button>
+                                
+                                <button type="reset" class="btn btn-outline-secondary">
+                                    <i class="fas fa-undo me-2"></i> Réinitialiser
+                                </button>
+                            </div>
+                        {% else %}
+                            <div class="alert alert-info">
+                                Ce plugin n'a pas de paramètres configurables.
+                            </div>
+                        {% endif %}
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Ajouter des effets visuels et des vérifications
+    document.addEventListener('DOMContentLoaded', function() {
+        // Animation pour les messages d'alerte
+        const alerts = document.querySelectorAll('.alert');
+        alerts.forEach(alert => {
+            setTimeout(() => {
+                if (alert && !alert.classList.contains('alert-info')) {
+                    const bsAlert = new bootstrap.Alert(alert);
+                    bsAlert.close();
+                }
+            }, 5000);
+        });
+        
+        // Confirmation avant de réinitialiser le formulaire
+        const resetButton = document.querySelector('button[type="reset"]');
+        if (resetButton) {
+            resetButton.addEventListener('click', function(e) {
+                if (!confirm('Êtes-vous sûr de vouloir réinitialiser les modifications ?')) {
+                    e.preventDefault();
+                }
+            });
+        }
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,38 @@
+{
+  "id": "news_analyzer_plugin",
+  "name": "Analyseur Avancé de News",
+  "description": "Analyse avancée des actualités financières avec détection d'impact et de tendances.",
+  "version": "1.0.0",
+  "author": "EVIL2ROOT Team",
+  "module": "news_analyzer_plugin",
+  "main_class": "NewsAnalyzerPlugin",
+  "min_bot_version": "1.0.0",
+  "dependencies": [],
+  "settings": {
+    "enable_topic_detection": true,
+    "enable_trend_analysis": true,
+    "high_impact_threshold": 0.75,
+    "save_history": true,
+    "history_days": 30,
+    "max_news_per_symbol": 100
+  },
+  "permissions": [
+    "news:read",
+    "news:write",
+    "sentiment:modify"
+  ],
+  "events": [
+    "AFTER_NEWS_FETCH",
+    "BEFORE_SENTIMENT_ANALYSIS",
+    "AFTER_SENTIMENT_ANALYSIS",
+    "SYSTEM_SHUTDOWN"
+  ],
+  "ui_components": [
+    {
+      "type": "tab",
+      "name": "News Analyzer",
+      "icon": "chart-line",
+      "route": "/plugins/news-analyzer"
+    }
+  ]
+} 

@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="mb-3">Gestion des Plugins</h1>
+            <p class="lead">
+                Installez, activez et gérez les modules complémentaires qui étendent les fonctionnalités du bot.
+            </p>
+        </div>
+    </div>
+
+    <!-- Alertes pour les messages flash -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <!-- Plugins installés -->
+    <div class="row mb-5">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">Plugins installés</h5>
+                </div>
+                <div class="card-body">
+                    {% if installed_plugins %}
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Nom</th>
+                                        <th>Description</th>
+                                        <th>Version</th>
+                                        <th>Auteur</th>
+                                        <th>État</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for plugin in installed_plugins %}
+                                        <tr>
+                                            <td>{{ plugin.name }}</td>
+                                            <td>{{ plugin.description }}</td>
+                                            <td>{{ plugin.version }}</td>
+                                            <td>{{ plugin.author }}</td>
+                                            <td>
+                                                {% if plugin.enabled %}
+                                                    <span class="badge bg-success">Activé</span>
+                                                {% else %}
+                                                    <span class="badge bg-secondary">Désactivé</span>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                <div class="btn-group">
+                                                    {% if plugin.enabled %}
+                                                        <form action="{{ url_for('main.disable_plugin', plugin_id=plugin.id) }}" method="post">
+                                                            <button type="submit" class="btn btn-sm btn-warning me-1">
+                                                                Désactiver
+                                                            </button>
+                                                        </form>
+                                                    {% else %}
+                                                        <form action="{{ url_for('main.enable_plugin', plugin_id=plugin.id) }}" method="post">
+                                                            <button type="submit" class="btn btn-sm btn-success me-1">
+                                                                Activer
+                                                            </button>
+                                                        </form>
+                                                    {% endif %}
+                                                    
+                                                    <a href="{{ url_for('main.plugin_settings', plugin_id=plugin.id) }}" class="btn btn-sm btn-primary me-1">
+                                                        Paramètres
+                                                    </a>
+                                                    
+                                                    <form action="{{ url_for('main.uninstall_plugin', plugin_id=plugin.id) }}" method="post" onsubmit="return confirm('Êtes-vous sûr de vouloir désinstaller ce plugin ?');">
+                                                        <button type="submit" class="btn btn-sm btn-danger">
+                                                            Désinstaller
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="alert alert-info mb-0">
+                            Aucun plugin n'est actuellement installé.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Plugins disponibles mais non installés -->
+    {% if discoverable_plugins %}
+        <div class="row mb-5">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="mb-0">Plugins disponibles</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Nom</th>
+                                        <th>Description</th>
+                                        <th>Version</th>
+                                        <th>Auteur</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for plugin in discoverable_plugins %}
+                                        <tr>
+                                            <td>{{ plugin.name }}</td>
+                                            <td>{{ plugin.description }}</td>
+                                            <td>{{ plugin.version }}</td>
+                                            <td>{{ plugin.author }}</td>
+                                            <td>
+                                                <form action="{{ url_for('main.enable_plugin', plugin_id=plugin.id) }}" method="post">
+                                                    <button type="submit" class="btn btn-sm btn-success">
+                                                        Activer
+                                                    </button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+
+    <!-- Installation de nouveaux plugins -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-dark text-white">
+                    <h5 class="mb-0">Installer un nouveau plugin</h5>
+                </div>
+                <div class="card-body">
+                    <form action="{{ url_for('main.install_plugin') }}" method="post" enctype="multipart/form-data">
+                        <div class="mb-3">
+                            <label for="plugin_file" class="form-label">Fichier du plugin (ZIP)</label>
+                            <input type="file" class="form-control" id="plugin_file" name="plugin_file" accept=".zip" required>
+                            <div class="form-text">
+                                Sélectionnez un fichier ZIP contenant le plugin à installer.
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-upload me-1"></i> Installer
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Ajouter des effets visuels pour améliorer l'expérience utilisateur
+    document.addEventListener('DOMContentLoaded', function() {
+        // Surligner les lignes au survol
+        const rows = document.querySelectorAll('tbody tr');
+        rows.forEach(row => {
+            row.addEventListener('mouseenter', () => {
+                row.classList.add('bg-light');
+            });
+            row.addEventListener('mouseleave', () => {
+                row.classList.remove('bg-light');
+            });
+        });
+        
+        // Animation pour les messages d'alerte
+        const alerts = document.querySelectorAll('.alert');
+        alerts.forEach(alert => {
+            setTimeout(() => {
+                if (alert) {
+                    const bsAlert = new bootstrap.Alert(alert);
+                    bsAlert.close();
+                }
+            }, 5000);
+        });
+    });
+</script>
+{% endblock %} 

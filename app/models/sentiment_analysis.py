@@ -573,70 +573,158 @@ class SentimentAnalyzer:
         
         return trends
 
-    def analyze_market_sentiment(self, headlines: List[str], market_volatility: Optional[float] = None) -> Dict:
+    def analyze_market_sentiment(self, headlines: List[str], 
+                               full_texts: Optional[List[str]] = None,
+                               pre_calculated_scores: Optional[List[float]] = None,
+                               relevance_weights: Optional[List[float]] = None,
+                               market_volatility: Optional[float] = None) -> Dict:
         """
-        Analyze overall market sentiment with improved contextual analysis
+        Analyze overall market sentiment with improved contextual analysis and additional data
+        
+        Args:
+            headlines: List of news headlines
+            full_texts: Optional list of full article texts (title + summary)
+            pre_calculated_scores: Optional pre-calculated sentiment scores from external sources
+            relevance_weights: Optional relevance weights for each news item
+            market_volatility: Optional market volatility metric
+            
+        Returns:
+            Dictionary with sentiment analysis results
         """
         if not headlines:
             return {'score': 0, 'regime': 'neutral', 'confidence': 0.5}
-            
+        
         # Analyse détaillée des titres
         headline_analysis = self.analyze_headlines(headlines, method='ensemble')
         
         if not headline_analysis:
             return {'score': 0, 'regime': 'neutral', 'confidence': 0.5}
         
-        # Extraire les scores de sentiment
+        # Extraire les scores de sentiment de l'analyse des titres
         sentiment_scores = [item['sentiment'] for item in headline_analysis]
+        
+        # Si nous avons des textes complets, analyser également ceux-ci
+        if full_texts:
+            full_text_scores = []
+            for text in full_texts:
+                if not text or len(text) < 10:  # Ignorer les textes trop courts
+                    continue
+                    
+                # Analyse simplifiée des textes complets
+                vader_score = self.predict_sentiment_vader(text)
+                transformer_score = self.predict_sentiment_transformer(text)
+                
+                # Moyenne pondérée en faveur du transformer qui est plus sophistiqué
+                combined_score = (vader_score * 0.3 + transformer_score * 0.7)
+                full_text_scores.append(combined_score)
+            
+            # Combiner les scores des titres et des textes complets
+            if full_text_scores:
+                all_scores = []
+                for i in range(min(len(sentiment_scores), len(full_text_scores))):
+                    # Le score du texte complet a un poids plus important
+                    combined = sentiment_scores[i] * 0.4 + full_text_scores[i] * 0.6
+                    all_scores.append(combined)
+                
+                # Ajouter les scores restants s'il y en a
+                all_scores.extend(sentiment_scores[len(all_scores):])
+                
+                sentiment_scores = all_scores
+        
+        # Incorporer les scores pré-calculés si disponibles
+        if pre_calculated_scores and len(pre_calculated_scores) > 0:
+            enhanced_scores = []
+            for i in range(min(len(sentiment_scores), len(pre_calculated_scores))):
+                # Combiner notre analyse avec le score pré-calculé
+                combined = sentiment_scores[i] * 0.7 + pre_calculated_scores[i] * 0.3
+                enhanced_scores.append(combined)
+                
+            # Ajouter les scores restants s'il y en a
+            enhanced_scores.extend(sentiment_scores[len(enhanced_scores):])
+            
+            sentiment_scores = enhanced_scores
         
         # Pondérer davantage les nouvelles économiques et financières
         weighted_scores = []
         total_weight = 0
         
-        for item in headline_analysis:
-            weight = 1.0  # Poids par défaut
-            
-            # Augmentation de la pondération pour des types de nouvelles spécifiques
-            if item['type'] == 'economic':
-                weight = 1.5
-            elif item['type'] == 'earnings':
-                weight = 1.3
-            elif item['type'] == 'merger':
-                weight = 1.2
-            
-            # Augmentation de la pondération pour des sentiments forts
-            if 'strength' in item and item['strength'] == 'strong':
-                weight *= 1.3
-            elif 'strength' in item and item['strength'] == 'moderate':
-                weight *= 1.1
-            
-            weighted_scores.append(item['sentiment'] * weight)
-            total_weight += weight
+        # Appliquer les poids de pertinence si fournis
+        if relevance_weights and len(relevance_weights) > 0:
+            for i, score in enumerate(sentiment_scores):
+                if i < len(relevance_weights):
+                    weight = relevance_weights[i]
+                    weighted_scores.append(score * weight)
+                    total_weight += weight
+                else:
+                    # Poids par défaut pour les scores sans poids spécifié
+                    weighted_scores.append(score * 0.5)
+                    total_weight += 0.5
+        else:
+            # Utiliser les types de nouvelles pour pondérer si pas de poids fournis
+            for i, item in enumerate(headline_analysis):
+                news_type = item.get('type', 'general')
+                # Assigner des poids en fonction du type de nouvelle
+                if news_type == 'economic':
+                    weight = 1.0
+                elif news_type == 'earnings':
+                    weight = 0.9
+                elif news_type == 'merger':
+                    weight = 0.8
+                elif news_type == 'tech':
+                    weight = 0.7
+                else:
+                    weight = 0.5
+                    
+                if i < len(sentiment_scores):
+                    weighted_scores.append(sentiment_scores[i] * weight)
+                    total_weight += weight
         
-        # Calculer le score de sentiment global pondéré
+        # Calculer le sentiment global
         if total_weight > 0:
             overall_sentiment = sum(weighted_scores) / total_weight
         else:
-            overall_sentiment = 0
+            overall_sentiment = 0.0
         
-        # Mettre à jour l'historique et le détecteur de régime
-        self.sentiment_history.append(overall_sentiment)
+        # Calculer la dispersion du sentiment (désaccord)
+        if len(sentiment_scores) > 1:
+            sentiment_dispersion = np.std(sentiment_scores)
+        else:
+            sentiment_dispersion = 0.0
         
-        # Définir la volatilité du marché ou l'estimer à partir du sentiment
-        if market_volatility is None:
-            if len(sentiment_scores) > 1:
-                market_volatility = np.std(sentiment_scores)
-            else:
-                market_volatility = 0.01  # Valeur par défaut faible
-        
-        # Obtenir le régime de marché actuel avec information enrichie
-        regime_info = self.regime_detector.update(overall_sentiment, market_volatility)
-        
+        # Mettre à jour les fenêtres glissantes
+        for i in range(min(5, len(sentiment_scores))):
+            self.sentiment_history.append(sentiment_scores[i])
+            for window_name, window in self.sentiment_windows.items():
+                window.append(sentiment_scores[i])
+            
         # Calculer les tendances du sentiment
         trend_info = self.calculate_sentiment_trend()
         
-        # Calculer la dispersion du sentiment (accord/désaccord des sources)
-        sentiment_dispersion = np.std(sentiment_scores) if len(sentiment_scores) > 1 else 0
+        # Analyser le régime de marché en fonction du sentiment
+        if overall_sentiment > 0.5:
+            regime = 'strongly_bullish'
+            confidence = min(1.0, 0.5 + abs(overall_sentiment))
+        elif overall_sentiment > 0.2:
+            regime = 'bullish'
+            confidence = 0.6 + abs(overall_sentiment) * 0.2
+        elif overall_sentiment < -0.5:
+            regime = 'strongly_bearish'
+            confidence = min(1.0, 0.5 + abs(overall_sentiment))
+        elif overall_sentiment < -0.2:
+            regime = 'bearish'
+            confidence = 0.6 + abs(overall_sentiment) * 0.2
+        else:
+            regime = 'neutral'
+            confidence = 0.5 + (0.5 - abs(overall_sentiment))
+        
+        # Ajuster la confiance en fonction de la dispersion (moins de confiance si grande dispersion)
+        confidence = max(0.3, confidence - sentiment_dispersion * 0.5)
+        
+        regime_info = {
+            'regime': regime,
+            'confidence': confidence,
+            'strength': abs(overall_sentiment),
+        }
         
         # Préparer les informations sur la distribution du sentiment
         sentiment_distribution = {
