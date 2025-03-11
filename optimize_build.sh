@@ -20,8 +20,15 @@ pip download --no-deps -d .docker-cache/pip plotly==5.14.1 dash==2.10.0
 
 # 4. Optimiser le fichier Dockerfile temporairement pour le build
 echo "⚙️ Configuration du build pour utiliser le cache local..."
-sed -i.bak 's/pip install --no-cache-dir plotly/pip install --find-links=\/.docker-cache\/pip plotly/g' Dockerfile
-sed -i.bak 's/pip install --no-cache-dir dash/pip install --find-links=\/.docker-cache\/pip dash/g' Dockerfile
+if [ -f Dockerfile ]; then
+    # Sauvegarde du Dockerfile original
+    cp Dockerfile Dockerfile.bak
+    
+    # Modification pour utiliser le cache local
+    sed -i.tmp 's|pip install --no-cache-dir plotly==5.14.1 --no-deps|pip install --find-links=./.docker-cache/pip plotly==5.14.1 --no-deps|g' Dockerfile
+    sed -i.tmp 's|pip install --no-cache-dir dash==2.10.0 --no-deps|pip install --find-links=./.docker-cache/pip dash==2.10.0 --no-deps|g' Dockerfile
+    rm -f Dockerfile.tmp
+fi
 
 # 5. Créer un .dockerignore temporaire optimisé
 echo "📝 Configuration de .dockerignore pour exclure les fichiers inutiles..."
@@ -51,6 +58,12 @@ docs/
 .DS_Store
 EOF
 
+# Copier le fichier .dockerignore.build vers .dockerignore s'il existe
+if [ -f .dockerignore ]; then
+    cp .dockerignore .dockerignore.bak
+    cp .dockerignore.build .dockerignore
+fi
+
 # 6. Lancer le build avec les optimisations
 echo "🏗️ Lancement du build avec optimisations..."
 DOCKER_BUILDKIT=1 docker build \
@@ -62,8 +75,14 @@ DOCKER_BUILDKIT=1 docker build \
 
 # 7. Restaurer les fichiers originaux
 echo "🔄 Restauration des fichiers originaux..."
-mv Dockerfile.bak Dockerfile 2>/dev/null || true
-mv .dockerignore.build .dockerignore 2>/dev/null || true
+if [ -f Dockerfile.bak ]; then
+    mv Dockerfile.bak Dockerfile
+fi
+
+if [ -f .dockerignore.bak ]; then
+    mv .dockerignore.bak .dockerignore
+    rm -f .dockerignore.build
+fi
 
 echo "✅ Build optimisé terminé !"
 echo "⏱️ Le temps de build devrait être considérablement réduit, en particulier pour l'étape 'web (4/6)' liée à Plotly."

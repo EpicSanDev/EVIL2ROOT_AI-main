@@ -16,18 +16,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Installer les dépendances en plusieurs étapes pour optimiser le cache Docker
 # 1. D'abord les dépendances essentielles (qui changent rarement)
 COPY requirements-essential.txt .
 RUN pip install --no-cache-dir -r requirements-essential.txt
 
 # 2. Installer Plotly et Dash séparément avec l'option --no-deps pour éviter les dépendances lourdes
+# Notez que l'option --no-deps est appliquée ici directement dans la commande pip, pas dans requirements.txt
 RUN pip install --no-cache-dir plotly==5.14.1 --no-deps \
     && pip install --no-cache-dir dash==2.10.0 --no-deps
 
 # 3. Installer le reste des dépendances
+# Nous excluons Plotly et Dash qui ont déjà été installés séparément
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN grep -v "plotly\|dash" requirements.txt > requirements-filtered.txt \
+    && pip install --no-cache-dir -r requirements-filtered.txt
 
 # Install additional dependencies for TensorFlow GPU support (if needed)
 # Uncomment if you need GPU support

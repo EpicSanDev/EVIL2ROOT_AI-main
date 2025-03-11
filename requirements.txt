@@ -51,8 +51,8 @@ statsmodels>=0.14.0
 alpha_vantage>=2.3.1
 
 # Monitoring & Visualization - OPTIMIZED
-plotly==5.14.1 --no-deps  # Spécifier une version exacte sans dépendances optionnelles
-dash==2.10.0 --no-deps    # Spécifier une version exacte sans dépendances optionnelles
+plotly==5.14.1  # Version exacte pour stabilité
+dash==2.10.0    # Version exacte pour stabilité
 # streamlit>=1.22.0       # Commenté car pas utilisé directement dans l'app mais par Plotly
 # bokeh>=3.1.1            # Commenté car pas utilisé directement dans l'app
 
