@@ -13,6 +13,7 @@ import redis
 import psycopg2
 from psycopg2.extras import DictCursor
 from dotenv import load_dotenv
+import asyncio
 
 from app.models.price_prediction import PricePredictionModel
 from app.models.risk_management import RiskManagementModel
@@ -203,7 +204,7 @@ class DataManager:
 class TradingBot:
     """Advanced AI-powered trading bot with multiple decision models."""
     
-    def __init__(self, initial_balance=100000.0, position_manager=None):
+    def __init__(self, initial_balance=100000.0, position_manager=None, model_trainer=None):
         self.initial_balance = initial_balance
         self.position_manager = position_manager
         self.order_history = []
@@ -221,6 +222,9 @@ class TradingBot:
         self.sentiment_analyzer = None
         self.transformer_model = None  # New Transformer model
         
+        # Model trainer instance
+        self.model_trainer = model_trainer
+        
         # Trading settings
         self.max_positions = 5
         self.risk_percentage = 0.02  # 2% risk per trade
@@ -237,6 +241,14 @@ class TradingBot:
             logging.info("Created new position manager")
         else:
             logging.info("Using provided position manager")
+        
+        # Create model trainer if not provided
+        if self.model_trainer is None:
+            from app.model_trainer import ModelTrainer
+            self.model_trainer = ModelTrainer(trading_bot=self)
+            logging.info("Created new model trainer")
+        else:
+            logging.info("Using provided model trainer")
         
         self._load_models()
         logger.info(f"TradingBot initialized with ${initial_balance} balance")
@@ -1099,19 +1111,53 @@ class TradingBot:
         except Exception as e:
             logging.error(f"Error storing trade exit: {e}")
 
-    def start_real_time_scanning(self, data_manager: DataManager, interval_seconds: int = 60):
-        """Start real-time market scanning and trading"""
+    def start_real_time_scanning(self, data_manager: DataManager, interval_seconds: int = 60, enable_incremental_learning: bool = True):
+        """Start real-time market scanning and trading
+        
+        Args:
+            data_manager: The data manager instance
+            interval_seconds: Seconds between each scan
+            enable_incremental_learning: Whether to update models with new data
+        """
         logging.info(f"Starting real-time market scanning every {interval_seconds} seconds.")
+        logging.info(f"Incremental learning is {'enabled' if enable_incremental_learning else 'disabled'}")
         
         # Create data directory if it doesn't exist
         os.makedirs('logs', exist_ok=True)
+        
+        # Store settings
+        self.enable_incremental_learning = enable_incremental_learning
         
         def scan_and_trade():
             try:
                 logging.info("Scanning market for opportunities...")
                 
                 # Update market data
+                prev_data = {}
+                if self.enable_incremental_learning:
+                    # Store previous data snapshots to determine what's new
+                    for symbol, data in data_manager.data.items():
+                        prev_data[symbol] = data.copy()
+                
+                # Update market data
                 data_manager.update_data()
+                
+                # Perform incremental learning if enabled
+                if self.enable_incremental_learning and hasattr(self.model_trainer, 'incremental_update_models'):
+                    for symbol, current_data in data_manager.data.items():
+                        if symbol in prev_data:
+                            # Get new data since last update (may be empty if no new data)
+                            latest_timestamp = prev_data[symbol].index[-1] if not prev_data[symbol].empty else None
+                            if latest_timestamp is not None:
+                                new_data = current_data[current_data.index > latest_timestamp]
+                                
+                                if not new_data.empty:
+                                    logging.info(f"Found {len(new_data)} new data points for {symbol}")
+                                    
+                                    # Update models with new data (non-blocking)
+                                    asyncio.create_task(
+                                        self.model_trainer.incremental_update_models(symbol, new_data)
+                                    )
                 
                 # Store market snapshots
                 self._store_market_snapshots(data_manager)

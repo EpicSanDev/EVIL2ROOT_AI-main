@@ -113,12 +113,16 @@ class TradingSystem:
                 start_date=Config.START_DATE
             )
             
+            # Initialize model trainer first
+            self.model_trainer = ModelTrainer()
+            
+            # Then initialize trading bot with model trainer
             self.trading_bot = TradingBot(
-                initial_balance=Config.INITIAL_BALANCE
+                initial_balance=Config.INITIAL_BALANCE,
+                model_trainer=self.model_trainer
             )
             
             self.telegram_bot = TelegramBot()
-            self.model_trainer = ModelTrainer(self.trading_bot)
             
             # Ensure market data exists
             await self.ensure_market_data()
@@ -203,10 +207,14 @@ class TradingSystem:
             # Train models
             backtest_results = await self.train_models()
             
-            # Start real-time trading
+            # Get incremental learning setting from environment
+            enable_incremental_learning = os.getenv('ENABLE_ONLINE_LEARNING', 'true').lower() == 'true'
+            
+            # Start real-time trading with incremental learning enabled
             self.trading_bot.start_real_time_scanning(
                 self.data_manager,
-                interval_seconds=Config.UPDATE_INTERVAL * 60
+                interval_seconds=Config.UPDATE_INTERVAL * 60,
+                enable_incremental_learning=enable_incremental_learning
             )
             
             # Keep the main loop running

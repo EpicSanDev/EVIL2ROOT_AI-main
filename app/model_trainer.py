@@ -18,6 +18,8 @@ import gc
 import copy
 import time
 from typing import Dict, List, Optional, Tuple, Union, Any
+import json
+from datetime import datetime
 
 from app.models.price_prediction import PricePredictionModel
 from app.models.risk_management import RiskManagementModel
@@ -55,9 +57,17 @@ class ModelTrainer:
         # New model types
         self.use_transformer = os.environ.get('USE_TRANSFORMER_MODEL', 'true').lower() == 'true'
         
+        # Online learning settings
+        self.enable_online_learning = os.environ.get('ENABLE_ONLINE_LEARNING', 'true').lower() == 'true'
+        self.online_learning_epochs = int(os.environ.get('ONLINE_LEARNING_EPOCHS', 5))
+        self.online_learning_batch_size = int(os.environ.get('ONLINE_LEARNING_BATCH_SIZE', 32))
+        self.min_data_points_for_update = int(os.environ.get('MIN_DATA_POINTS_FOR_UPDATE', 30))
+        self.online_learning_memory = {}  # Store recent data points for incremental learning
+        
         logger.info(f"ModelTrainer initialized with optimization settings: trials={self.max_optimization_trials}, timeout={self.optimization_timeout}s")
         logger.info(f"GPU acceleration {'enabled' if self.use_gpu else 'disabled'}")
         logger.info(f"Transformer model {'enabled' if self.use_transformer else 'disabled'}")
+        logger.info(f"Online learning {'enabled' if self.enable_online_learning else 'disabled'}")
     
     async def train_all_models(self, data_manager):
         """
@@ -624,4 +634,169 @@ class ModelTrainer:
             
         except Exception as e:
             logger.error(f"Error training transformer model for {symbol}: {e}")
+            return None
+
+    async def incremental_update_models(self, symbol: str, new_data: pd.DataFrame):
+        """
+        Update all models incrementally with new market data
+        
+        Args:
+            symbol: The trading symbol
+            new_data: New market data to use for incremental learning
+        
+        Returns:
+            Dict of updated model metrics
+        """
+        if not self.enable_online_learning:
+            logger.info(f"Online learning disabled, skipping incremental update for {symbol}")
+            return None
+            
+        if len(new_data) < self.min_data_points_for_update:
+            logger.info(f"Not enough new data points for {symbol} (got {len(new_data)}, need {self.min_data_points_for_update})")
+            return None
+            
+        logger.info(f"Performing incremental model update for {symbol} with {len(new_data)} new data points")
+        
+        # Store data in memory buffer for this symbol
+        if symbol not in self.online_learning_memory:
+            self.online_learning_memory[symbol] = new_data
+        else:
+            # Append new data to existing buffer and keep only the most recent data
+            max_memory_size = 1000  # Maximum data points to keep in memory
+            self.online_learning_memory[symbol] = pd.concat([
+                self.online_learning_memory[symbol], 
+                new_data
+            ]).drop_duplicates().tail(max_memory_size)
+        
+        update_metrics = {}
+        try:
+            # Update price prediction model
+            price_model_path = os.path.join(self.models_dir, f"{symbol}_price_model")
+            if os.path.exists(price_model_path):
+                logger.info(f"Updating price prediction model for {symbol}")
+                model = PricePredictionModel.load(price_model_path)
+                
+                # Prepare data for training
+                X, y = model.prepare_data(self.online_learning_memory[symbol])
+                
+                # Update model with new data
+                model.model.fit(
+                    X, y,
+                    epochs=self.online_learning_epochs,
+                    batch_size=self.online_learning_batch_size,
+                    verbose=0
+                )
+                
+                # Save updated model
+                model.save(price_model_path)
+                logger.info(f"Price prediction model for {symbol} updated successfully")
+                
+            # Update risk management model
+            risk_model_path = os.path.join(self.models_dir, f"{symbol}_risk_model")
+            if os.path.exists(risk_model_path):
+                logger.info(f"Updating risk management model for {symbol}")
+                model = RiskManagementModel.load(risk_model_path)
+                
+                # Prepare data for training
+                X, y = model.prepare_data(self.online_learning_memory[symbol])
+                
+                # Update model with new data
+                model.model.fit(
+                    X, y,
+                    epochs=self.online_learning_epochs,
+                    batch_size=self.online_learning_batch_size,
+                    verbose=0
+                )
+                
+                # Save updated model
+                model.save(risk_model_path)
+                logger.info(f"Risk management model for {symbol} updated successfully")
+            
+            # Update TP/SL model
+            tpsl_model_path = os.path.join(self.models_dir, f"{symbol}_tpsl_model")
+            if os.path.exists(tpsl_model_path):
+                logger.info(f"Updating TP/SL model for {symbol}")
+                model = TpSlManagementModel.load(tpsl_model_path)
+                
+                # Prepare data for training
+                X, y = model.prepare_data(self.online_learning_memory[symbol])
+                
+                # Update model with new data
+                model.model.fit(
+                    X, y,
+                    epochs=self.online_learning_epochs,
+                    batch_size=self.online_learning_batch_size,
+                    verbose=0
+                )
+                
+                # Save updated model
+                model.save(tpsl_model_path)
+                logger.info(f"TP/SL model for {symbol} updated successfully")
+            
+            # Update indicator model
+            indicator_model_path = os.path.join(self.models_dir, f"{symbol}_indicator_model")
+            if os.path.exists(indicator_model_path):
+                logger.info(f"Updating indicator model for {symbol}")
+                model = IndicatorManagementModel.load(indicator_model_path)
+                
+                # Prepare data for training
+                X, y = model.prepare_data(self.online_learning_memory[symbol])
+                
+                # Update model with new data
+                model.model.fit(
+                    X, y,
+                    epochs=self.online_learning_epochs,
+                    batch_size=self.online_learning_batch_size,
+                    verbose=0
+                )
+                
+                # Save updated model
+                model.save(indicator_model_path)
+                logger.info(f"Indicator model for {symbol} updated successfully")
+                
+            # Update transformer model if enabled
+            if self.use_transformer:
+                transformer_model_path = os.path.join(self.models_dir, f"{symbol}_transformer_model")
+                scaler_path = os.path.join(self.models_dir, f"{symbol}_transformer_scalers.pkl")
+                
+                if os.path.exists(transformer_model_path) and os.path.exists(scaler_path):
+                    logger.info(f"Updating transformer model for {symbol}")
+                    model = FinancialTransformer.load(transformer_model_path, scaler_path)
+                    
+                    # Update model with new data
+                    history = model.train(
+                        data=self.online_learning_memory[symbol],
+                        target_column='Close',
+                        epochs=self.online_learning_epochs,
+                        batch_size=self.online_learning_batch_size,
+                        validation_split=0.2
+                    )
+                    
+                    # Save updated model
+                    model.save(transformer_model_path, scaler_path)
+                    
+                    # Store metrics
+                    update_metrics['transformer'] = {
+                        'loss': history.history['loss'][-1],
+                        'val_loss': history.history.get('val_loss', [0])[-1]
+                    }
+                    
+                    logger.info(f"Transformer model for {symbol} updated successfully")
+            
+            # Save update timestamp to track when models were last updated
+            update_info = {
+                'last_update': datetime.now().isoformat(),
+                'data_points': len(new_data),
+                'metrics': update_metrics
+            }
+            
+            update_info_path = os.path.join(self.models_dir, f"{symbol}_update_info.json")
+            with open(update_info_path, 'w') as f:
+                json.dump(update_info, f)
+                
+            logger.info(f"Incremental update for {symbol} completed successfully")
+            return update_metrics
+            
+        except Exception as e:
+            logger.error(f"Error during incremental update for {symbol}: {e}")
             return None
