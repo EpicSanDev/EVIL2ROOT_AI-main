@@ -665,26 +665,78 @@ class TradingBot:
         return -1
         
     def _update_signal_validation(self, signal_id: int, validated: bool, confidence: float) -> None:
-        """Update signal with validation results"""
-        if signal_id <= 0:
-            return
+        """Update a signal with AI validation results."""
+        for signals_group in self.latest_signals:
+            for signal in signals_group.get('signals', []):
+                if signal.get('id') == signal_id:
+                    signal['validated'] = validated
+                    signal['validation_confidence'] = confidence
+                    logging.info(f"Updated signal {signal_id} with validation: {validated}, confidence: {confidence}")
+                    return
+        logging.warning(f"Signal ID {signal_id} not found for validation update")
+    
+    def get_model_predictions(self, symbol):
+        """
+        Récupère les prédictions réelles des modèles pour un symbole donné.
+        
+        Args:
+            symbol (str): Le symbole pour lequel récupérer les prédictions
             
+        Returns:
+            dict: Un dictionnaire contenant les prédictions des différents modèles
+        """
         try:
-            conn = get_db_connection()
-            if conn:
-                with conn.cursor() as cursor:
-                    cursor.execute(
-                        """
-                        UPDATE trading_signals
-                        SET validated = %s, validation_confidence = %s
-                        WHERE id = %s
-                        """,
-                        (validated, confidence, signal_id)
-                    )
-                    conn.commit()
-                conn.close()
+            # Vérifier si nous avons des données de marché pour ce symbole
+            if symbol not in self.market_data or self.market_data[symbol].empty:
+                logging.warning(f"No market data available for {symbol}")
+                return None
+            
+            # Récupérer les données récentes pour faire des prédictions
+            data = self.market_data[symbol].tail(30).copy()
+            
+            # Initialiser le dictionnaire de prédictions
+            predictions = {}
+            
+            # Prédictions du modèle de prix
+            if self.price_model is not None:
+                try:
+                    # Préparer les données pour le modèle
+                    prepared_data = data.copy()
+                    
+                    # Faire la prédiction pour les 5 prochains jours
+                    price_predictions = []
+                    current_data = prepared_data.copy()
+                    
+                    for i in range(5):
+                        prediction = self.price_model.predict(current_data)
+                        price_predictions.append(prediction)
+                        
+                        # Mettre à jour les données avec la prédiction pour la prochaine itération
+                        new_row = current_data.iloc[-1].copy()
+                        new_row['Close'] = prediction
+                        current_data = current_data.append(new_row)
+                    
+                    # Ajouter les derniers prix réels suivis des prédictions
+                    predictions['price_predictions'] = data['Close'].tolist() + price_predictions
+                except Exception as e:
+                    logging.error(f"Error getting price predictions for {symbol}: {e}")
+            
+            # Prédictions du modèle Transformer
+            if self.transformer_model is not None and self.enable_transformer:
+                try:
+                    # Faire la prédiction pour les 5 prochains jours avec le modèle Transformer
+                    transformer_preds = self.transformer_model.predict_sequence(data, steps=5)
+                    
+                    # Ajouter les derniers prix réels suivis des prédictions
+                    predictions['transformer_predictions'] = data['Close'].tolist() + transformer_preds
+                except Exception as e:
+                    logging.error(f"Error getting transformer predictions for {symbol}: {e}")
+            
+            return predictions
+            
         except Exception as e:
-            logging.error(f"Error updating signal validation: {e}")
+            logging.error(f"Error in get_model_predictions for {symbol}: {e}")
+            return None
 
     def combine_signals(self, predicted_price: float, indicator_signal: float, 
                        risk_score: float, tp: float, sl: float, 

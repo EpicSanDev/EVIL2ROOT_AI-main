@@ -370,7 +370,7 @@ def api_performance_equity():
         start_date = datetime(2010, 1, 1)
     
     try:
-        # Get equity data from database or generate sample data if not available
+        # Get equity data from database
         conn = psycopg2.connect(
             dbname=os.environ.get('DB_NAME', 'trading_db'),
             user=os.environ.get('DB_USER', 'trader'),
@@ -407,30 +407,14 @@ def api_performance_equity():
                 drawdown_pct = ((peak - equity[i]) / peak) * 100 if peak > 0 else 0
                 drawdown[i] = drawdown_pct
         else:
-            # If no data, generate sample data
-            dates = [(start_date + timedelta(days=i)).strftime('%Y-%m-%d') 
-                    for i in range((end_date - start_date).days + 1)]
+            # Si aucune donnée n'est disponible, retourner des tableaux vides
+            dates = []
+            equity = []
+            balance = []
+            drawdown = []
             
-            initial_value = 100000
-            equity = [initial_value]
-            balance = [initial_value]
-            drawdown = [0]
-            
-            for i in range(1, len(dates)):
-                # Random daily change between -2% and +2%
-                daily_change = random.uniform(-0.02, 0.03)
-                equity.append(equity[-1] * (1 + daily_change))
-                
-                # Balance changes less frequently
-                if random.random() < 0.1:  # 10% chance of balance change
-                    balance.append(balance[-1] * (1 + random.uniform(-0.01, 0.02)))
-                else:
-                    balance.append(balance[-1])
-                
-                # Calculate drawdown
-                peak = max(equity[:i+1])
-                current_drawdown = ((peak - equity[i]) / peak) * 100 if peak > 0 else 0
-                drawdown.append(current_drawdown)
+            # Log warning that no data is available
+            logging.warning("No equity data available in database for the requested time range.")
         
         return jsonify({
             'dates': dates,
@@ -445,7 +429,8 @@ def api_performance_equity():
             'dates': [],
             'equity': [],
             'balance': [],
-            'drawdown': []
+            'drawdown': [],
+            'error': str(e)
         })
 
 @main_blueprint.route('/api/performance/trade_distribution')
@@ -460,21 +445,56 @@ def api_trade_distribution():
             losing_trades = sum(1 for p in closed_positions if p.pnl < 0)
             breakeven_trades = sum(1 for p in closed_positions if p.pnl == 0)
             
+            return jsonify({
+                'winning_trades': winning_trades,
+                'losing_trades': losing_trades,
+                'breakeven_trades': breakeven_trades,
+                'total_trades': winning_trades + losing_trades + breakeven_trades
+            })
         else:
-            # If no data, generate sample data
-            total_trades = random.randint(50, 200)
-            win_rate = random.uniform(0.4, 0.7)
+            # Si aucune donnée n'est disponible, essayer de récupérer depuis la base de données
+            conn = psycopg2.connect(
+                dbname=os.environ.get('DB_NAME', 'trading_db'),
+                user=os.environ.get('DB_USER', 'trader'),
+                password=os.environ.get('DB_PASSWORD', 'secure_password'),
+                host=os.environ.get('DB_HOST', 'database'),
+                port=os.environ.get('DB_PORT', '5432')
+            )
             
-            winning_trades = int(total_trades * win_rate)
-            losing_trades = int(total_trades * (1 - win_rate - 0.05))
-            breakeven_trades = total_trades - winning_trades - losing_trades
-        
-        return jsonify({
-            'winning_trades': winning_trades,
-            'losing_trades': losing_trades,
-            'breakeven_trades': breakeven_trades,
-            'total_trades': winning_trades + losing_trades + breakeven_trades
-        })
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT 
+                        SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as winning_trades,
+                        SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END) as losing_trades,
+                        SUM(CASE WHEN pnl = 0 THEN 1 ELSE 0 END) as breakeven_trades
+                    FROM trades
+                    WHERE closed_at IS NOT NULL
+                """)
+                
+                result = cur.fetchone()
+                
+            conn.close()
+            
+            if result and result[0] is not None:
+                winning_trades = int(result[0])
+                losing_trades = int(result[1])
+                breakeven_trades = int(result[2])
+                
+                return jsonify({
+                    'winning_trades': winning_trades,
+                    'losing_trades': losing_trades,
+                    'breakeven_trades': breakeven_trades,
+                    'total_trades': winning_trades + losing_trades + breakeven_trades
+                })
+            else:
+                logging.warning("No trade distribution data available")
+                return jsonify({
+                    'winning_trades': 0,
+                    'losing_trades': 0,
+                    'breakeven_trades': 0,
+                    'total_trades': 0,
+                    'data_available': False
+                })
     
     except Exception as e:
         logging.error(f"Error getting trade distribution data: {e}")
@@ -482,7 +502,8 @@ def api_trade_distribution():
             'winning_trades': 0,
             'losing_trades': 0,
             'breakeven_trades': 0,
-            'total_trades': 0
+            'total_trades': 0,
+            'error': str(e)
         })
 
 @main_blueprint.route('/api/performance/symbol_performance')
@@ -491,6 +512,7 @@ def api_symbol_performance():
     try:
         symbols_data = {}
         
+        # 1. D'abord, essayez de récupérer les données à partir du position_manager
         if trading_bot and hasattr(trading_bot, 'position_manager'):
             # Get all unique symbols from closed positions
             symbols = set()
@@ -513,25 +535,55 @@ def api_symbol_performance():
                     'total_trades': total_trades
                 }
         
-        # If no data or very little data, add some sample data
-        if len(symbols_data) < 3:
-            sample_symbols = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'BTC-USD', 'ETH-USD']
-            for symbol in sample_symbols:
-                if symbol not in symbols_data:
+        # 2. Si les données du position_manager sont insuffisantes, récupérer depuis la base de données
+        if not symbols_data:
+            conn = psycopg2.connect(
+                dbname=os.environ.get('DB_NAME', 'trading_db'),
+                user=os.environ.get('DB_USER', 'trader'),
+                password=os.environ.get('DB_PASSWORD', 'secure_password'),
+                host=os.environ.get('DB_HOST', 'database'),
+                port=os.environ.get('DB_PORT', '5432')
+            )
+            
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT 
+                        symbol,
+                        SUM(pnl) as total_pnl,
+                        COUNT(*) as total_trades,
+                        SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as winning_trades
+                    FROM trades
+                    WHERE closed_at IS NOT NULL
+                    GROUP BY symbol
+                """)
+                
+                for row in cur.fetchall():
+                    symbol = row[0]
+                    total_pnl = float(row[1])
+                    total_trades = int(row[2])
+                    winning_trades = int(row[3])
+                    
+                    win_rate = winning_trades / total_trades if total_trades > 0 else 0
+                    
                     symbols_data[symbol] = {
-                        'total_pnl': random.uniform(-5000, 15000),
-                        'win_rate': random.uniform(0.3, 0.8),
-                        'total_trades': random.randint(10, 50)
+                        'total_pnl': total_pnl,
+                        'win_rate': win_rate,
+                        'total_trades': total_trades
                     }
-        
+            
+            conn.close()
+            
         return jsonify({
-            'symbols': symbols_data
+            'symbols': symbols_data,
+            'data_available': len(symbols_data) > 0
         })
     
     except Exception as e:
         logging.error(f"Error getting symbol performance data: {e}")
         return jsonify({
-            'symbols': {}
+            'symbols': {},
+            'data_available': False,
+            'error': str(e)
         })
 
 @main_blueprint.route('/api/predictions/<symbol>')
@@ -546,100 +598,61 @@ def api_price_predictions(symbol):
         if actual_data is not None and not actual_data.empty:
             # Get the last 30 days of data
             recent_data = actual_data.tail(30).copy()
-            
             dates = recent_data.index.strftime('%Y-%m-%d').tolist()
             actual_prices = recent_data['Close'].tolist()
             
-            # Get predictions if available
-            predicted_prices = []
-            transformer_predictions = []
+            # Variables pour stocker les prédictions réelles
+            predicted_prices = None
+            transformer_predictions = None
             
+            # Récupérer les prédictions réelles des modèles
             if trading_bot:
-                # Try to get predictions from the trading bot's model predictions
-                price_key = f"{symbol}_price"
-                transformer_key = f"{symbol}_transformer"
+                model_predictions = trading_bot.get_model_predictions(symbol)
                 
-                if price_key in trading_bot.model_predictions:
-                    # Extend actual prices with predictions for the future
-                    predicted_prices = actual_prices[-10:].copy()
-                    for i in range(5):  # Add 5 future predictions
-                        predicted_prices.append(predicted_prices[-1] * (1 + random.uniform(-0.02, 0.03)))
-                else:
-                    # If no predictions available, create some random ones that generally follow the trend
-                    predicted_prices = actual_prices.copy()
-                    trend = (predicted_prices[-1] / predicted_prices[0] - 1) / len(predicted_prices)
-                    for i in range(5):
-                        predicted_prices.append(predicted_prices[-1] * (1 + trend + random.uniform(-0.02, 0.02)))
+                if model_predictions and 'price_predictions' in model_predictions:
+                    predicted_prices = model_predictions['price_predictions']
                 
-                if transformer_key in trading_bot.model_predictions:
-                    # Use real transformer predictions if available
-                    transformer_predictions = actual_prices[-10:].copy()
-                    for i in range(5):
-                        transformer_predictions.append(transformer_predictions[-1] * (1 + random.uniform(-0.015, 0.025)))
-                else:
-                    # Create some different predictions for the transformer model
-                    transformer_predictions = actual_prices.copy()
-                    for i in range(5):
-                        transformer_predictions.append(transformer_predictions[-1] * (1 + random.uniform(-0.01, 0.03)))
+                if model_predictions and 'transformer_predictions' in model_predictions:
+                    transformer_predictions = model_predictions['transformer_predictions']
             
-            else:
-                # If no trading bot, create some fake predictions that follow the trend
-                predicted_prices = actual_prices.copy()
-                transformer_predictions = actual_prices.copy()
-                
-                # Add 5 days of predictions
-                for i in range(5):
-                    predicted_prices.append(predicted_prices[-1] * (1 + random.uniform(-0.02, 0.03)))
-                    transformer_predictions.append(transformer_predictions[-1] * (1 + random.uniform(-0.01, 0.025)))
+            # Si les prédictions ne sont pas disponibles, utiliser seulement les données réelles
+            if predicted_prices is None or len(predicted_prices) == 0:
+                logging.warning(f"No price predictions available for {symbol}")
+                predicted_prices = actual_prices
             
-            # Add future dates for predictions
-            last_date = datetime.strptime(dates[-1], '%Y-%m-%d')
-            for i in range(1, 6):
-                future_date = (last_date + timedelta(days=i)).strftime('%Y-%m-%d')
+            if transformer_predictions is None or len(transformer_predictions) == 0:
+                logging.warning(f"No transformer predictions available for {symbol}")
+                transformer_predictions = actual_prices
+            
+            # Assurer que toutes les listes ont la même longueur
+            max_len = max(len(actual_prices), len(predicted_prices), len(transformer_predictions))
+            
+            # Ajouter des valeurs nulles pour les dates futures des prix réels
+            actual_prices_with_nulls = actual_prices + [None] * (max_len - len(actual_prices))
+            
+            # Assurez-vous que les dates correspondent à la plus longue série
+            while len(dates) < max_len:
+                last_date = datetime.strptime(dates[-1], '%Y-%m-%d')
+                future_date = (last_date + timedelta(days=1)).strftime('%Y-%m-%d')
                 dates.append(future_date)
             
             return jsonify({
                 'dates': dates,
-                'actual_prices': actual_prices + [None] * 5,  # Add None for future dates
+                'actual_prices': actual_prices_with_nulls,
                 'predicted_prices': predicted_prices,
-                'transformer_predictions': transformer_predictions
+                'transformer_predictions': transformer_predictions,
+                'data_available': True
             })
         
         else:
-            # If no data, create some sample data
-            dates = [(datetime.now() - timedelta(days=30-i)).strftime('%Y-%m-%d') for i in range(30)]
-            
-            # Generate sample price data with a general trend
-            base_price = 100
-            trend = random.uniform(-0.0005, 0.0015)
-            
-            actual_prices = []
-            for i in range(30):
-                daily_change = trend + random.uniform(-0.02, 0.02)
-                new_price = base_price * (1 + daily_change)
-                actual_prices.append(new_price)
-                base_price = new_price
-            
-            # Create predictions
-            predicted_prices = actual_prices[-10:].copy()
-            transformer_predictions = actual_prices[-10:].copy()
-            
-            # Add 5 days of predictions
-            for i in range(5):
-                predicted_prices.append(predicted_prices[-1] * (1 + trend + random.uniform(-0.02, 0.03)))
-                transformer_predictions.append(transformer_predictions[-1] * (1 + trend + random.uniform(-0.01, 0.025)))
-            
-            # Add future dates for predictions
-            last_date = datetime.strptime(dates[-1], '%Y-%m-%d')
-            for i in range(1, 6):
-                future_date = (last_date + timedelta(days=i)).strftime('%Y-%m-%d')
-                dates.append(future_date)
-            
+            logging.warning(f"No market data available for {symbol}")
             return jsonify({
-                'dates': dates,
-                'actual_prices': actual_prices + [None] * 5,  # Add None for future dates
-                'predicted_prices': predicted_prices,
-                'transformer_predictions': transformer_predictions
+                'dates': [],
+                'actual_prices': [],
+                'predicted_prices': [],
+                'transformer_predictions': [],
+                'data_available': False,
+                'message': f"No market data available for {symbol}"
             })
     
     except Exception as e:
@@ -648,7 +661,9 @@ def api_price_predictions(symbol):
             'dates': [],
             'actual_prices': [],
             'predicted_prices': [],
-            'transformer_predictions': []
+            'transformer_predictions': [],
+            'data_available': False,
+            'error': str(e)
         })
 
 @main_blueprint.route('/api/risk/heatmap')
@@ -657,7 +672,7 @@ def api_risk_heatmap():
     try:
         symbols_risk = {}
         
-        # Try to get actual risk data from the risk model
+        # Essayer de récupérer les données de risque réelles depuis le modèle de risque
         if trading_bot and trading_bot.risk_model:
             if data_manager:
                 for symbol in data_manager.symbols:
@@ -665,16 +680,41 @@ def api_risk_heatmap():
                         try:
                             risk_score = trading_bot.risk_model.predict_risk(data_manager.data[symbol])
                             symbols_risk[symbol] = risk_score
-                        except:
-                            # If prediction fails, add a random risk score
-                            symbols_risk[symbol] = random.uniform(0.2, 0.8)
+                        except Exception as e:
+                            # En cas d'erreur, ne pas ajouter de données aléatoires mais logger l'erreur
+                            logging.error(f"Error predicting risk for {symbol}: {e}")
         
-        # If no data or very little data, add some sample data
-        if len(symbols_risk) < 3:
-            sample_symbols = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'BTC-USD', 'ETH-USD']
-            for symbol in sample_symbols:
-                if symbol not in symbols_risk:
-                    symbols_risk[symbol] = random.uniform(0.2, 0.8)
+        # Si aucune donnée n'est disponible, tenter de récupérer les évaluations de risque depuis la base de données
+        if len(symbols_risk) == 0:
+            try:
+                conn = psycopg2.connect(
+                    dbname=os.environ.get('DB_NAME', 'trading_db'),
+                    user=os.environ.get('DB_USER', 'trader'),
+                    password=os.environ.get('DB_PASSWORD', 'secure_password'),
+                    host=os.environ.get('DB_HOST', 'database'),
+                    port=os.environ.get('DB_PORT', '5432')
+                )
+                
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT symbol, risk_score 
+                        FROM risk_assessments
+                        WHERE created_at > NOW() - INTERVAL '1 day'
+                        ORDER BY created_at DESC
+                    """)
+                    
+                    rows = cur.fetchall()
+                    for row in rows:
+                        symbol = row[0]
+                        risk_score = float(row[1])
+                        
+                        # Ne garder que la dernière évaluation par symbole
+                        if symbol not in symbols_risk:
+                            symbols_risk[symbol] = risk_score
+                
+                conn.close()
+            except Exception as e:
+                logging.error(f"Error fetching risk data from database: {e}")
         
         # Sort by risk score
         sorted_symbols = sorted(symbols_risk.items(), key=lambda x: x[1], reverse=True)
@@ -683,118 +723,154 @@ def api_risk_heatmap():
         
         return jsonify({
             'symbols': symbols,
-            'risk_scores': risk_scores
+            'risk_scores': risk_scores,
+            'data_available': len(symbols_risk) > 0
         })
     
     except Exception as e:
         logging.error(f"Error getting risk heatmap data: {e}")
         return jsonify({
             'symbols': [],
-            'risk_scores': []
+            'risk_scores': [],
+            'data_available': False,
+            'error': str(e)
         })
 
 @main_blueprint.route('/api/sentiment/timeline')
 def api_sentiment_timeline():
     """API endpoint for sentiment timeline data."""
     try:
-        # Try to get actual sentiment data
-        sentiment_data = {}
+        # Générer dates pour les 30 derniers jours
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=30)
+        dates = [(start_date + timedelta(days=i)).strftime('%Y-%m-%d') 
+                for i in range((end_date - start_date).days + 1)]
         
-        if trading_bot and trading_bot.sentiment_analyzer:
-            # Get symbols that have sentiment analysis
-            symbols = []
-            if data_manager:
-                symbols = data_manager.symbols[:5]  # Limit to first 5 symbols
-            
-            if not symbols:
-                symbols = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA']
-            
-            # Generate dates for the last 30 days
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=30)
-            dates = [(start_date + timedelta(days=i)).strftime('%Y-%m-%d') 
-                    for i in range((end_date - start_date).days + 1)]
-            
-            # For each symbol, get or generate sentiment data
-            sentiment_scores = []
-            for symbol in symbols:
-                try:
-                    # Try to get actual sentiment or generate random data
-                    sentiment = trading_bot.sentiment_analyzer.analyze_sentiment(symbol)
-                    
-                    if sentiment and 'sentiment_score' in sentiment:
-                        base_sentiment = sentiment['sentiment_score']
-                    else:
-                        base_sentiment = random.uniform(-0.3, 0.5)
-                    
-                    # Generate sentiment over time with some consistency
-                    symbol_sentiment = []
-                    current_sentiment = base_sentiment
-                    
-                    for _ in dates:
-                        # Adjust sentiment slightly each day
-                        current_sentiment += random.uniform(-0.1, 0.1)
-                        # Keep sentiment between -1 and 1
-                        current_sentiment = max(-1, min(1, current_sentiment))
-                        symbol_sentiment.append(current_sentiment)
-                    
-                    sentiment_scores.append(symbol_sentiment)
-                    
-                except Exception as e:
-                    logging.error(f"Error getting sentiment for {symbol}: {e}")
-                    # Generate random sentiment data
-                    base_sentiment = random.uniform(-0.3, 0.5)
-                    symbol_sentiment = []
-                    
-                    for _ in dates:
-                        symbol_sentiment.append(base_sentiment + random.uniform(-0.2, 0.2))
-                    
-                    sentiment_scores.append(symbol_sentiment)
-            
-            return jsonify({
-                'dates': dates,
-                'symbols': symbols,
-                'sentiment_scores': sentiment_scores
-            })
+        # Initialiser la structure pour récupérer les données de sentiment
+        sentiment_data = {
+            'dates': dates,
+            'symbols': [],
+            'sentiment_scores': [],
+            'data_available': False
+        }
         
-        else:
-            # Generate sample sentiment data
-            symbols = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA']
+        # Récupérer les données réelles de sentiment depuis la base de données
+        try:
+            conn = psycopg2.connect(
+                dbname=os.environ.get('DB_NAME', 'trading_db'),
+                user=os.environ.get('DB_USER', 'trader'),
+                password=os.environ.get('DB_PASSWORD', 'secure_password'),
+                host=os.environ.get('DB_HOST', 'database'),
+                port=os.environ.get('DB_PORT', '5432')
+            )
             
-            # Generate dates for the last 30 days
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=30)
-            dates = [(start_date + timedelta(days=i)).strftime('%Y-%m-%d') 
-                    for i in range((end_date - start_date).days + 1)]
-            
-            # Generate sentiment data for each symbol
-            sentiment_scores = []
-            for _ in symbols:
-                base_sentiment = random.uniform(-0.3, 0.5)
-                symbol_sentiment = []
-                current_sentiment = base_sentiment
+            with conn.cursor() as cur:
+                # Récupérer les 5 symboles les plus fréquemment analysés
+                cur.execute("""
+                    SELECT symbol, COUNT(*) as count
+                    FROM sentiment_analysis
+                    WHERE created_at >= %s
+                    GROUP BY symbol
+                    ORDER BY count DESC
+                    LIMIT 5
+                """, (start_date,))
                 
-                for _ in dates:
-                    # Adjust sentiment slightly each day
-                    current_sentiment += random.uniform(-0.1, 0.1)
-                    # Keep sentiment between -1 and 1
-                    current_sentiment = max(-1, min(1, current_sentiment))
-                    symbol_sentiment.append(current_sentiment)
+                top_symbols = [row[0] for row in cur.fetchall()]
                 
-                sentiment_scores.append(symbol_sentiment)
+                if not top_symbols and data_manager:
+                    # Si aucun symbole n'a de données de sentiment, utiliser les premiers symboles du data_manager
+                    top_symbols = data_manager.symbols[:5]
+                
+                # Si toujours pas de symboles, ne pas continuer
+                if not top_symbols:
+                    conn.close()
+                    return jsonify(sentiment_data)
+                
+                sentiment_data['symbols'] = top_symbols
+                
+                # Pour chaque symbole, récupérer l'historique de sentiment
+                for symbol in top_symbols:
+                    # Récupérer les scores de sentiment pour ce symbole
+                    cur.execute("""
+                        SELECT date_trunc('day', created_at)::date as day, AVG(sentiment_score) as avg_score
+                        FROM sentiment_analysis
+                        WHERE symbol = %s AND created_at >= %s
+                        GROUP BY day
+                        ORDER BY day ASC
+                    """, (symbol, start_date))
+                    
+                    # Initialiser un dictionnaire pour stocker les scores par date
+                    daily_scores = {date: None for date in dates}
+                    
+                    # Remplir les dates pour lesquelles nous avons des données
+                    for row in cur.fetchall():
+                        date_str = row[0].strftime('%Y-%m-%d')
+                        if date_str in daily_scores:
+                            daily_scores[date_str] = float(row[1])
+                    
+                    # Convertir en liste et interpoler les valeurs manquantes
+                    scores_list = list(daily_scores.values())
+                    
+                    # Interpolation linéaire pour les valeurs manquantes
+                    last_valid = None
+                    for i in range(len(scores_list)):
+                        if scores_list[i] is not None:
+                            last_valid = scores_list[i]
+                        elif last_valid is not None:
+                            scores_list[i] = last_valid
+                    
+                    # Si des valeurs sont toujours None au début, utiliser la première valeur valide
+                    first_valid = next((x for x in scores_list if x is not None), 0)
+                    scores_list = [first_valid if x is None else x for x in scores_list]
+                    
+                    sentiment_data['sentiment_scores'].append(scores_list)
             
-            return jsonify({
-                'dates': dates,
-                'symbols': symbols,
-                'sentiment_scores': sentiment_scores
-            })
+            conn.close()
+            
+            # Si des données ont été trouvées, marquer comme disponible
+            if sentiment_data['sentiment_scores']:
+                sentiment_data['data_available'] = True
+            
+        except Exception as e:
+            logging.error(f"Error getting sentiment timeline data from database: {e}")
+            
+            # Si l'accès à la base de données a échoué, essayer d'utiliser l'analyseur de sentiment en direct
+            if trading_bot and trading_bot.sentiment_analyzer:
+                symbols = []
+                if data_manager:
+                    symbols = data_manager.symbols[:5]  # Limiter aux 5 premiers symboles
+                
+                if symbols:
+                    sentiment_data['symbols'] = symbols
+                    sentiment_scores = []
+                    
+                    for symbol in symbols:
+                        try:
+                            # Analyser le sentiment actuel
+                            sentiment = trading_bot.sentiment_analyzer.analyze_sentiment(symbol)
+                            
+                            if sentiment and 'sentiment_score' in sentiment:
+                                # Utiliser le score actuel pour toutes les dates (pas idéal mais mieux que rien)
+                                current_score = sentiment['sentiment_score']
+                                sentiment_scores.append([current_score] * len(dates))
+                                sentiment_data['data_available'] = True
+                            
+                        except Exception as e:
+                            logging.error(f"Error analyzing sentiment for {symbol}: {e}")
+                    
+                    if sentiment_scores:
+                        sentiment_data['sentiment_scores'] = sentiment_scores
+        
+        return jsonify(sentiment_data)
     
     except Exception as e:
-        logging.error(f"Error getting sentiment timeline data: {e}")
+        logging.error(f"Error in sentiment timeline API: {e}")
         return jsonify({
             'dates': [],
             'symbols': [],
-            'sentiment_scores': []
+            'sentiment_scores': [],
+            'data_available': False,
+            'error': str(e)
         })
 
 @main_blueprint.route('/api/signals/<signal_id>')
@@ -981,3 +1057,26 @@ def api_execute_trade():
             'success': False,
             'error': str(e)
         }), 500
+
+@main_blueprint.route('/api/system/cpu')
+def api_system_cpu():
+    """API endpoint for real CPU and memory usage data."""
+    try:
+        cpu_percent = psutil.cpu_percent(interval=0.5)
+        memory_info = psutil.virtual_memory()
+        
+        return jsonify({
+            'cpu_percent': cpu_percent,
+            'memory_percent': memory_info.percent,
+            'memory_used': memory_info.used,
+            'memory_total': memory_info.total
+        })
+    
+    except Exception as e:
+        logging.error(f"Error getting system CPU data: {e}")
+        return jsonify({
+            'cpu_percent': 0,
+            'memory_percent': 0,
+            'memory_used': 0,
+            'memory_total': 0
+        })

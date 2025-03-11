@@ -61,14 +61,23 @@ function updateCpuChart() {
     const cpuChart = document.getElementById('cpu-chart');
     if (!cpuChart) return;
     
-    // In a real implementation, we would get real CPU data
-    // For demo purposes, we'll use random data
-    const randomCpuValue = Math.floor(Math.random() * 100);
-    
-    // Update the chart (assuming Plotly is being used)
-    Plotly.update('cpu-chart', {
-        y: [[randomCpuValue]]
-    });
+    // Récupérer les vraies données CPU depuis l'API
+    fetch('/api/system/cpu')
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            // Mettre à jour le graphique avec les vraies données
+            Plotly.update('cpu-chart', {
+                y: [[data.cpu_percent]]
+            });
+        })
+        .catch(error => {
+            console.error('Error fetching CPU data:', error);
+        });
 }
 
 // Update signals table with new data
