@@ -12,7 +12,23 @@ from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCh
 from sklearn.model_selection import train_test_split, TimeSeriesSplit
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import optuna
-from optuna.integration import TFKerasPruningCallback
+
+# Try to import TFKerasPruningCallback, but provide a fallback if it's not available
+try:
+    from optuna.integration import TFKerasPruningCallback
+    OPTUNA_TFKERAS_AVAILABLE = True
+except ImportError:
+    logging.warning("optuna-integration[tfkeras] not found. TFKerasPruningCallback will not be available.")
+    # Define a dummy callback that does nothing as fallback
+    class DummyTFKerasPruningCallback(tf.keras.callbacks.Callback):
+        def __init__(self, *args, **kwargs):
+            super().__init__()
+            logging.warning("Using dummy TFKerasPruningCallback. Install optuna-integration[tfkeras] for proper functionality.")
+        def on_epoch_end(self, epoch, logs=None):
+            pass
+    TFKerasPruningCallback = DummyTFKerasPruningCallback
+    OPTUNA_TFKERAS_AVAILABLE = False
+
 from hyperopt import fmin, tpe, hp, STATUS_OK, Trials
 import gc
 import copy
