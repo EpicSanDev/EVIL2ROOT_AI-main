@@ -39,12 +39,13 @@ Un système de trading automatisé complet avec validation des décisions par IA
 - [Sécurité](#-sécurité)
 - [Avertissement](#-avertissement)
 - [Contact](#-contact)
+- [Fonctionnalités d'analyse avec entraînement préalable des modèles](#fonctionnalités-d'analyse-avec-entraînement-préalable-des-modèles)
 
-## 🚀 Caractéristiques
+## �� Caractéristiques
 
 - **Modèles de Trading Multiples**: 
   - Indicateurs techniques traditionnels
-  - Prédiction de prix par apprentissage profond
+  - Prédiction de prix par apprentage profond
   - Apprentissage par renforcement
   - Analyse de sentiment du marché
   - Analyse de news financières
@@ -395,3 +396,38 @@ Ce logiciel est fourni à des fins éducatives uniquement. Le trading comporte d
 <p align="center">
   Développé avec ❤️ par l'équipe EVIL2ROOT
 </p>
+
+## Fonctionnalités d'analyse avec entraînement préalable des modèles
+
+Le système d'analyse prend désormais en charge l'entraînement obligatoire des modèles avant de commencer les analyses. Cette fonctionnalité garantit que les modèles sont correctement entraînés avant d'envoyer des analyses, ce qui améliore la qualité et la fiabilité des prédictions.
+
+### Utilisation
+
+Vous pouvez utiliser le script `start_train_and_analyze.sh` pour lancer le bot d'analyse avec un entraînement forcé des modèles :
+
+```bash
+./start_train_and_analyze.sh
+```
+
+Alternativement, vous pouvez utiliser l'option `--force-train` avec le script Python directement :
+
+```bash
+python3 start_daily_analysis.py --force-train
+```
+
+### Fonctionnement
+
+Lorsque cette fonctionnalité est activée :
+
+1. Le système vérifie si des modèles existants sont présents dans le répertoire `saved_models`
+2. Si l'option `--force-train` est utilisée, les modèles existants sont ignorés et de nouveaux modèles sont entraînés
+3. Le système envoie une notification via Telegram pour informer que l'entraînement des modèles est en cours
+4. Une fois l'entraînement terminé, les analyses sont générées et envoyées
+
+### Configuration Docker
+
+Pour Docker, vous pouvez également forcer l'entraînement des modèles en définissant la variable d'environnement `FORCE_MODEL_TRAINING=true` dans votre fichier `.env` ou dans la commande Docker :
+
+```bash
+docker-compose run -e FORCE_MODEL_TRAINING=true analysis-bot
+```

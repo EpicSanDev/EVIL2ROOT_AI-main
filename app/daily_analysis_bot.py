@@ -10,6 +10,7 @@ import requests
 import pandas as pd
 import numpy as np
 from dotenv import load_dotenv
+import pathlib
 
 from app.telegram_bot import TelegramBot
 from app.models.news_retrieval import NewsRetriever
@@ -76,6 +77,9 @@ class DailyAnalysisBot:
             "20:00"   # Analyse récapitulative
         ]
         
+        # Répertoire des modèles
+        self.models_dir = os.environ.get('MODELS_DIR', 'saved_models')
+        
         # Initialisation des modèles de prédiction
         logger.info("Initializing prediction models...")
         self.price_prediction_models = {}
@@ -95,10 +99,19 @@ class DailyAnalysisBot:
         
         # Transformer model sera initialisé à la demande pour économiser de la mémoire
         
+        # Flag pour suivre l'état d'entraînement des modèles
+        self.models_trained = False
+        
         logger.info(f"Daily Analysis Bot initialized with {len(symbols)} symbols")
         
     def start_scheduled_analysis(self):
         """Démarre les analyses planifiées selon l'horaire configuré"""
+        # Vérifier et entraîner les modèles avant de commencer
+        if not self.models_trained:
+            asyncio.run(self.telegram_bot.send_message("📊 *PRÉPARATION DES MODÈLES D'ANALYSE* 📊\n\nEntraînement des modèles en cours... Veuillez patienter."))
+            self.train_all_models()
+            asyncio.run(self.telegram_bot.send_message("✅ Entraînement des modèles terminé. Les analyses vont démarrer."))
+        
         # Configurer le planning des analyses
         for analysis_time in self.analysis_schedule:
             schedule.every().day.at(analysis_time).do(self.run_analysis_for_all_symbols)
@@ -116,10 +129,213 @@ class DailyAnalysisBot:
         except KeyboardInterrupt:
             logger.info("Scheduled analysis stopped by user")
     
+    def train_all_models(self):
+        """Entraîne tous les modèles nécessaires pour les analyses"""
+        logger.info("Starting model training for all symbols...")
+        
+        try:
+            # Entraîner les modèles pour chaque symbole
+            for symbol in self.symbols:
+                logger.info(f"Training models for {symbol}...")
+                
+                # Récupérer les données historiques pour l'entraînement
+                try:
+                    # Utiliser une période plus longue pour l'entraînement
+                    market_data = self.fetch_market_data(symbol, period="2y", interval="1d")
+                    
+                    # Entraîner le modèle de prédiction de prix
+                    self._train_price_model(symbol, market_data)
+                    
+                    # Entraîner le modèle de sentiment
+                    self._train_sentiment_model(symbol, market_data)
+                    
+                    # Entraîner le modèle de risque
+                    self._train_risk_model(symbol, market_data)
+                    
+                    # Entraîner le modèle d'indicateurs
+                    self._train_indicator_model(symbol, market_data)
+                    
+                    # Entraîner le modèle Transformer si activé
+                    if os.environ.get('USE_TRANSFORMER_MODEL', 'true').lower() == 'true':
+                        self._train_transformer_model(symbol, market_data)
+                    
+                    logger.info(f"All models trained successfully for {symbol}")
+                    
+                except Exception as e:
+                    logger.error(f"Error training models for {symbol}: {e}")
+            
+            # Marquer les modèles comme entraînés
+            self.models_trained = True
+            logger.info("All models trained successfully")
+            
+        except Exception as e:
+            logger.error(f"Error during model training: {e}")
+            raise
+    
+    def _train_price_model(self, symbol, market_data):
+        """Entraîne le modèle de prédiction de prix"""
+        logger.info(f"Training price prediction model for {symbol}")
+        
+        try:
+            # Vérifier si le modèle existe déjà
+            model_path = os.path.join(self.models_dir, f"{symbol}_price_model")
+            
+            if os.path.exists(model_path):
+                # Charger le modèle existant
+                logger.info(f"Loading existing price model for {symbol}")
+                self.price_prediction_models[symbol].load(model_path)
+            else:
+                # Entraîner un nouveau modèle
+                logger.info(f"Training new price model for {symbol}")
+                self.price_prediction_models[symbol].train(market_data)
+                
+                # Sauvegarder le modèle
+                pathlib.Path(self.models_dir).mkdir(exist_ok=True)
+                self.price_prediction_models[symbol].save(model_path)
+                
+            logger.info(f"Price prediction model ready for {symbol}")
+            
+        except Exception as e:
+            logger.error(f"Error training price model for {symbol}: {e}")
+            raise
+    
+    def _train_sentiment_model(self, symbol, market_data):
+        """Entraîne le modèle d'analyse de sentiment"""
+        logger.info(f"Training sentiment analysis model for {symbol}")
+        
+        try:
+            # Vérifier si le modèle existe déjà
+            model_path = os.path.join(self.models_dir, f"{symbol}_sentiment_model")
+            
+            if os.path.exists(model_path):
+                logger.info(f"Loading existing sentiment model for {symbol}")
+                self.sentiment_analyzers[symbol].load(model_path)
+            else:
+                logger.info(f"Training new sentiment model for {symbol}")
+                # Récupérer des données supplémentaires pour l'entraînement
+                news = self.news_retriever.get_combined_news(symbol, max_results=50)
+                self.sentiment_analyzers[symbol].train(market_data, news)
+                
+                # Sauvegarder le modèle
+                pathlib.Path(self.models_dir).mkdir(exist_ok=True)
+                self.sentiment_analyzers[symbol].save(model_path)
+                
+            logger.info(f"Sentiment analysis model ready for {symbol}")
+            
+        except Exception as e:
+            logger.error(f"Error training sentiment model for {symbol}: {e}")
+            raise
+    
+    def _train_risk_model(self, symbol, market_data):
+        """Entraîne le modèle de gestion des risques"""
+        logger.info(f"Training risk management model for {symbol}")
+        
+        try:
+            # Vérifier si le modèle existe déjà
+            model_path = os.path.join(self.models_dir, f"{symbol}_risk_model")
+            
+            if os.path.exists(model_path):
+                logger.info(f"Loading existing risk model for {symbol}")
+                self.risk_managers[symbol].load(model_path)
+            else:
+                logger.info(f"Training new risk model for {symbol}")
+                self.risk_managers[symbol].train(market_data)
+                
+                # Sauvegarder le modèle
+                pathlib.Path(self.models_dir).mkdir(exist_ok=True)
+                self.risk_managers[symbol].save(model_path)
+                
+            logger.info(f"Risk management model ready for {symbol}")
+            
+        except Exception as e:
+            logger.error(f"Error training risk model for {symbol}: {e}")
+            raise
+    
+    def _train_indicator_model(self, symbol, market_data):
+        """Entraîne le modèle de gestion des indicateurs"""
+        logger.info(f"Training indicator management model for {symbol}")
+        
+        try:
+            # Vérifier si le modèle existe déjà
+            model_path = os.path.join(self.models_dir, f"{symbol}_indicator_model")
+            
+            if os.path.exists(model_path):
+                logger.info(f"Loading existing indicator model for {symbol}")
+                self.indicator_managers[symbol].load(model_path)
+            else:
+                logger.info(f"Training new indicator model for {symbol}")
+                self.indicator_managers[symbol].train(market_data)
+                
+                # Sauvegarder le modèle
+                pathlib.Path(self.models_dir).mkdir(exist_ok=True)
+                self.indicator_managers[symbol].save(model_path)
+                
+            logger.info(f"Indicator management model ready for {symbol}")
+            
+        except Exception as e:
+            logger.error(f"Error training indicator model for {symbol}: {e}")
+            raise
+    
+    def _train_transformer_model(self, symbol, market_data):
+        """Entraîne le modèle Transformer pour les prédictions avancées"""
+        logger.info(f"Training transformer model for {symbol}")
+        
+        try:
+            # Vérifier si le modèle existe déjà
+            model_path = os.path.join(self.models_dir, f"{symbol}_transformer_model")
+            scaler_path = os.path.join(self.models_dir, f"{symbol}_transformer_scalers.pkl")
+            
+            if os.path.exists(model_path) and os.path.exists(scaler_path):
+                logger.info(f"Loading existing transformer model for {symbol}")
+                if symbol not in self.transformer_models:
+                    # Initialiser le modèle transformateur
+                    self.transformer_models[symbol] = FinancialTransformer()
+                    
+                self.transformer_models[symbol].load(model_path, scaler_path)
+            else:
+                logger.info(f"Training new transformer model for {symbol}")
+                # Initialiser le modèle s'il n'existe pas
+                if symbol not in self.transformer_models:
+                    self.transformer_models[symbol] = FinancialTransformer(
+                        input_sequence_length=30,
+                        forecast_horizon=5,
+                        d_model=64,
+                        num_heads=4,
+                        dropout_rate=0.1,
+                        num_transformer_blocks=2
+                    )
+                
+                # Entraîner le modèle
+                self.transformer_models[symbol].train(
+                    data=market_data,
+                    target_column='Close',
+                    epochs=50,
+                    batch_size=32,
+                    validation_split=0.2
+                )
+                
+                # Sauvegarder le modèle
+                pathlib.Path(self.models_dir).mkdir(exist_ok=True)
+                self.transformer_models[symbol].save(model_path, scaler_path)
+                
+            logger.info(f"Transformer model ready for {symbol}")
+            
+        except Exception as e:
+            logger.error(f"Error training transformer model for {symbol}: {e}")
+            raise
+    
     def run_analysis_for_all_symbols(self):
         """Exécute l'analyse pour tous les symboles configurés"""
         current_time = datetime.now().strftime("%H:%M")
         logger.info(f"Starting scheduled analysis for all symbols at {current_time}")
+        
+        # Vérifier si les modèles sont entraînés
+        if not self.models_trained:
+            message = "⚠️ Les modèles d'analyse n'ont pas été entraînés. Entraînement en cours..."
+            logger.warning("Models not trained. Training now before analysis.")
+            asyncio.run(self.telegram_bot.send_message(message))
+            self.train_all_models()
+            asyncio.run(self.telegram_bot.send_message("✅ Entraînement des modèles terminé. Début des analyses..."))
         
         # Envoyer un message initial
         asyncio.run(self.telegram_bot.send_message(f"🔎 *ANALYSE DE MARCHÉ* - {datetime.now().strftime('%d/%m/%Y %H:%M')} 🔎\n\nPréparation des analyses pour {len(self.symbols)} actifs..."))
@@ -1033,24 +1249,44 @@ Formate la réponse avec Markdown pour Telegram (utilise *texte* pour le gras et
 
 def run_daily_analysis_bot():
     """
-    Point d'entrée pour exécuter le bot d'analyse quotidienne
+    Fonction principale pour exécuter le bot d'analyse quotidienne
     """
-    try:
-        # Charger les symboles depuis les variables d'environnement
-        load_dotenv()
-        symbols_str = os.getenv('SYMBOLS', 'AAPL,GOOGL,MSFT,AMZN,TSLA,BTC-USD,ETH-USD')
-        symbols = [s.strip() for s in symbols_str.split(',')]
+    # Charger les variables d'environnement si ce n'est pas déjà fait
+    load_dotenv()
+    
+    # Récupérer la liste des symboles depuis les variables d'environnement
+    symbols_str = os.environ.get('SYMBOLS', 'AAPL,GOOGL,MSFT,AMZN,TSLA,BTC-USD,ETH-USD')
+    symbols = [s.strip() for s in symbols_str.split(',')]
+    
+    # Vérifier si l'entraînement forcé est demandé
+    force_training = os.environ.get('FORCE_MODEL_TRAINING', 'false').lower() == 'true'
+    
+    # Créer le bot d'analyse
+    analysis_bot = DailyAnalysisBot(symbols)
+    
+    # Si l'entraînement forcé est demandé, nettoyer les modèles existants
+    if force_training:
+        logger.info("Forced training mode activated - Clearing existing models")
+        # Supprimer les anciens fichiers de modèles
+        import shutil
+        models_dir = os.environ.get('MODELS_DIR', 'saved_models')
         
-        logger.info(f"Starting Daily Analysis Bot with symbols: {symbols}")
+        try:
+            if os.path.exists(models_dir):
+                # Supprimer tous les fichiers de modèles mais garder le répertoire
+                for filename in os.listdir(models_dir):
+                    file_path = os.path.join(models_dir, filename)
+                    if os.path.isfile(file_path) and filename != '.gitkeep':
+                        os.unlink(file_path)
+                logger.info(f"Cleared existing models from {models_dir}")
+        except Exception as e:
+            logger.warning(f"Error clearing models directory: {e}")
         
-        # Initialiser et démarrer le bot
-        analysis_bot = DailyAnalysisBot(symbols)
-        analysis_bot.start_scheduled_analysis()
-        
-    except KeyboardInterrupt:
-        logger.info("Daily Analysis Bot stopped by user")
-    except Exception as e:
-        logger.error(f"Error running Daily Analysis Bot: {e}")
+        # Forcer l'entraînement des modèles
+        analysis_bot.models_trained = False
+    
+    # Démarrer le bot d'analyse
+    analysis_bot.start_scheduled_analysis()
 
 if __name__ == "__main__":
     run_daily_analysis_bot() 

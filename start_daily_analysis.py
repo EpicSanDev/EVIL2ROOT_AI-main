@@ -6,10 +6,17 @@ Envoie des analyses complètes (technique, fondamentale, news) via Telegram à i
 
 import os
 import logging
+import argparse
 from dotenv import load_dotenv
 from app.daily_analysis_bot import run_daily_analysis_bot
 
 if __name__ == "__main__":
+    # Parser pour les arguments de ligne de commande
+    parser = argparse.ArgumentParser(description='Démarrer le bot d\'analyse quotidienne')
+    parser.add_argument('--force-train', action='store_true', 
+                        help='Force l\'entraînement des modèles, même si des modèles sont déjà sauvegardés')
+    args = parser.parse_args()
+    
     # Configuration du logging
     logging.basicConfig(
         level=logging.INFO,
@@ -39,6 +46,12 @@ if __name__ == "__main__":
         logger.warning("L'analyse sera simplifiée sans l'utilisation de Claude 3.7")
     
     logger.info("Démarrage du bot d'analyse quotidienne...")
+    
+    # Si force-train est activé, supprimer les modèles existants
+    if args.force_train:
+        logger.info("Mode entraînement forcé activé - Les modèles existants seront ignorés et réentraînés")
+        # Définir la variable d'environnement pour forcer l'entraînement
+        os.environ['FORCE_MODEL_TRAINING'] = 'true'
     
     # Démarrer le bot d'analyse
     try:
