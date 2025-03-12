@@ -387,22 +387,16 @@ class DailyAnalysisBot:
         try:
             logger.info(f"Fetching market data for {symbol}")
             
-            # Force to download data for a list even with a single symbol to ensure proper DataFrame creation
-            # Explicitly set auto_adjust to False to maintain backward compatibility
-            data = yf.download([symbol], period=period, interval=interval, progress=False, auto_adjust=False)
+            # Use a single symbol string instead of a list to avoid MultiIndex complications
+            data = yf.download(symbol, period=period, interval=interval, progress=False, auto_adjust=False)
             
             if data.empty:
                 logger.warning(f"No data received for {symbol} using period={period}. Attempting with maximum period...")
                 # Try again with max period as fallback
-                data = yf.download([symbol], period="max", interval=interval, progress=False, auto_adjust=False)
+                data = yf.download(symbol, period="max", interval=interval, progress=False, auto_adjust=False)
                 
                 if data.empty:
                     raise ValueError(f"No data received for {symbol} even with maximum period")
-            
-            # If 'Adj Close' is a MultiIndex DataFrame (when downloaded as a list), get the first level
-            if isinstance(data.columns, pd.MultiIndex):
-                # This ensures we get a clean DataFrame without the symbol as a level in the columns
-                data = data.xs(symbol, level=0, axis=1)
             
             # Check again if data is empty after processing
             if data.empty:

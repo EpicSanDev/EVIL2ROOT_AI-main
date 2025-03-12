@@ -27,7 +27,7 @@ class PricePredictionModel:
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
     
-    def train(self, data, symbol, optimize=True, epochs=100, validation_split=0.2):
+    def train(self, data, symbol=None, optimize=True, epochs=100, validation_split=0.2):
         """
         Simulation de l'entraînement du modèle
         
@@ -46,6 +46,17 @@ class PricePredictionModel:
         # Log who called us
         caller = inspect.getouterframes(inspect.currentframe())[1]
         caller_info = f"{caller.filename}:{caller.lineno} in {caller.function}"
+        
+        # Print extra debugging information
+        self.logger.info(f"MOCK - train parameters: data={type(data)}, symbol={symbol}, optimize={optimize}")
+        self.logger.info(f"MOCK - caller info: {caller_info}")
+        
+        # If symbol is None, raise a detailed error to help debugging
+        if symbol is None:
+            error_msg = f"Symbol parameter is required but was None. Called from {caller_info}."
+            self.logger.error(error_msg)
+            raise ValueError(error_msg)
+            
         self.logger.info(f"DÉBUT DE TRAIN pour {symbol} - appelé depuis: {caller_info}")
         
         self.logger.info(f"Training model for symbol: {symbol}")

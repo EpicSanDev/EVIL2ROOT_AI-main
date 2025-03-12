@@ -416,7 +416,7 @@ class PricePredictionModel:
                 'loss': 'mean_squared_error'
             }
 
-    def train(self, data, symbol, optimize=True, epochs=100, validation_split=0.2):
+    def train(self, data, symbol=None, optimize=True, epochs=100, validation_split=0.2):
         """
         Train the model with advanced features and techniques.
         
@@ -433,6 +433,18 @@ class PricePredictionModel:
         # Ajout d'un log détaillé
         caller = inspect.getouterframes(inspect.currentframe())[1]
         caller_info = f"{caller.filename}:{caller.lineno} in {caller.function}"
+        
+        # Print extra debugging information
+        self.logger.info(f"EXTRA DEBUG - train parameters: data={type(data)}, symbol={symbol}, optimize={optimize}")
+        self.logger.info(f"EXTRA DEBUG - caller info: {caller_info}")
+        self.logger.info(f"EXTRA DEBUG - arguments: {inspect.signature(self.train)}")
+        
+        # If symbol is None, raise a detailed error to help debugging
+        if symbol is None:
+            error_msg = f"Symbol parameter is required but was None. Called from {caller_info}."
+            self.logger.error(error_msg)
+            raise ValueError(error_msg)
+            
         self.logger.info(f"DÉBUT DE TRAIN pour {symbol} - appelé depuis: {caller_info}")
         
         try:
