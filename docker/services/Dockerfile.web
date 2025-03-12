@@ -25,7 +25,7 @@ COPY . .
 
 # Set environment variables
 ENV PYTHONPATH=/app
-ENV FLASK_APP=app.routes
+ENV FLASK_APP=run.py
 ENV FLASK_ENV=production
 ENV PYTHONUNBUFFERED=1
 ENV TZ=Europe/Brussels
@@ -40,4 +40,4 @@ EXPOSE 5000
 ENTRYPOINT ["/entrypoint.sh"]
 
 # Command to run the web UI
-CMD ["flask", "run", "--host=0.0.0.0"]
+CMD ["gunicorn", "run:app", "--bind=0.0.0.0:5000"]

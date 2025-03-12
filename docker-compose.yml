@@ -5,6 +5,7 @@ services:
     build: .
     image: evil2root/trading-bot:latest
     container_name: trading-bot-web
+    command: gunicorn run:app --bind=0.0.0.0:5000
     ports:
       - "5000:5000"
       - "9090:9090"  # Port for Prometheus metrics

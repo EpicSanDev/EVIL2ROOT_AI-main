@@ -258,3 +258,6 @@ if __name__ == "__main__":
         logger.info("Shutting down gracefully...")
     except Exception as e:
         logger.error(f"Fatal error: {e}")
+
+# Create the Flask app instance for gunicorn to use
+app = create_app()

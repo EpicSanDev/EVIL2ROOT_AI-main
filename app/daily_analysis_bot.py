@@ -149,10 +149,21 @@ class DailyAnalysisBot:
         """
         try:
             logger.info(f"Fetching market data for {symbol}")
-            data = yf.download(symbol, period=period, interval=interval, progress=False)
+            
+            # Force to download data for a list even with a single symbol to ensure proper DataFrame creation
+            data = yf.download([symbol], period=period, interval=interval, progress=False)
             
             if data.empty:
                 raise ValueError(f"No data received for {symbol}")
+            
+            # If 'Adj Close' is a MultiIndex DataFrame (when downloaded as a list), get the first level
+            if isinstance(data.columns, pd.MultiIndex):
+                # Select data for the specific symbol
+                data = data.xs(symbol, axis=1, level=1, drop_level=True)
+            
+            # Check again if data is empty after processing
+            if data.empty:
+                raise ValueError(f"No valid data received for {symbol} after processing")
                 
             # Ajouter les indicateurs techniques
             self._add_technical_indicators(data)
