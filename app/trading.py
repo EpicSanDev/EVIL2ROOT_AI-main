@@ -58,7 +58,7 @@ db_params = {
     'dbname': os.environ.get('DB_NAME', 'trading_db'),
     'user': os.environ.get('DB_USER', 'trader'),
     'password': os.environ.get('DB_PASSWORD', 'secure_password'),
-    'host': os.environ.get('DB_HOST', 'localhost'),
+    'host': os.environ.get('DB_HOST', 'db'),
     'port': os.environ.get('DB_PORT', '5432')
 }
 
