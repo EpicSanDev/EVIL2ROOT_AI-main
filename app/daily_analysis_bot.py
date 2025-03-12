@@ -187,7 +187,7 @@ class DailyAnalysisBot:
             else:
                 # Entraîner un nouveau modèle
                 logger.info(f"Training new price model for {symbol}")
-                self.price_prediction_models[symbol].train(market_data)
+                self.price_prediction_models[symbol].train(market_data, symbol)
                 
                 # Sauvegarder le modèle
                 pathlib.Path(self.models_dir).mkdir(exist_ok=True)
@@ -214,7 +214,7 @@ class DailyAnalysisBot:
                 logger.info(f"Training new sentiment model for {symbol}")
                 # Récupérer des données supplémentaires pour l'entraînement
                 news = self.news_retriever.get_combined_news(symbol, max_results=50)
-                self.sentiment_analyzers[symbol].train(market_data, news)
+                self.sentiment_analyzers[symbol].train(market_data, news, symbol)
                 
                 # Sauvegarder le modèle
                 pathlib.Path(self.models_dir).mkdir(exist_ok=True)
@@ -239,7 +239,7 @@ class DailyAnalysisBot:
                 self.risk_managers[symbol].load(model_path)
             else:
                 logger.info(f"Training new risk model for {symbol}")
-                self.risk_managers[symbol].train(market_data)
+                self.risk_managers[symbol].train(market_data, symbol)
                 
                 # Sauvegarder le modèle
                 pathlib.Path(self.models_dir).mkdir(exist_ok=True)
@@ -264,7 +264,7 @@ class DailyAnalysisBot:
                 self.indicator_managers[symbol].load(model_path)
             else:
                 logger.info(f"Training new indicator model for {symbol}")
-                self.indicator_managers[symbol].train(market_data)
+                self.indicator_managers[symbol].train(market_data, symbol)
                 
                 # Sauvegarder le modèle
                 pathlib.Path(self.models_dir).mkdir(exist_ok=True)
