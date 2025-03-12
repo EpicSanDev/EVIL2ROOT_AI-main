@@ -19,8 +19,6 @@ import tensorflow as tf
 import traceback
 import inspect
 import gc
-from app.models.online_learning import ContinualLearningManager
-from app.models.probability_calibration import ProbabilityCalibrator, RegressionCalibrator
 
 class PricePredictionModel:
     def __init__(self, sequence_length=60, future_periods=1, model_dir='models'):
@@ -38,24 +36,6 @@ class PricePredictionModel:
         self.sequence_length = sequence_length
         self.future_periods = future_periods
         self.model_dir = model_dir
-        
-        # Initialize continual learning and probability calibration
-        self.online_learning = ContinualLearningManager(
-            memory_size=2000, 
-            buffer_strategy='diverse',
-            models_dir=os.path.join(model_dir, 'online_learning')
-        )
-        
-        self.probability_calibrator = ProbabilityCalibrator(
-            method='ensemble',
-            models_dir=os.path.join(model_dir, 'calibration')
-        )
-        
-        self.regression_calibrator = RegressionCalibrator(
-            method='conformal',
-            confidence_level=0.95,
-            models_dir=os.path.join(model_dir, 'calibration')
-        )
         
         # Create model directory if it doesn't exist
         if not os.path.exists(model_dir):
@@ -440,7 +420,7 @@ class PricePredictionModel:
                 'loss': 'mean_squared_error'
             }
 
-    def train(self, data=None, symbol=None, optimize=True, epochs=100, validation_split=0.2, online_learning=False, **kwargs):
+    def train(self, data=None, symbol=None, optimize=True, epochs=100, validation_split=0.2, **kwargs):
         """
         Train the model with advanced features and techniques.
         
@@ -450,7 +430,6 @@ class PricePredictionModel:
             optimize: Whether to optimize hyperparameters
             epochs: Number of training epochs if not optimizing
             validation_split: Validation data fraction
-            online_learning: Whether to use continual learning for updates
             **kwargs: Additional arguments that might be passed
             
         Returns:
@@ -470,14 +449,13 @@ class PricePredictionModel:
         optimize = kwargs.get('optimize', optimize)
         epochs = kwargs.get('epochs', epochs)
         validation_split = kwargs.get('validation_split', validation_split)
-        online_learning = kwargs.get('online_learning', online_learning)
         
         # Ajout d'un log détaillé
         caller = inspect.getouterframes(inspect.currentframe())[1]
         caller_info = f"{caller.filename}:{caller.lineno} in {caller.function}"
         
         # Print extra debugging information
-        self.logger.info(f"EXTRA DEBUG - train parameters: data={type(data)}, symbol={symbol}, optimize={optimize}, online_learning={online_learning}")
+        self.logger.info(f"EXTRA DEBUG - train parameters: data={type(data)}, symbol={symbol}, optimize={optimize}")
         self.logger.info(f"EXTRA DEBUG - caller info: {caller_info}")
         self.logger.info(f"EXTRA DEBUG - arguments: {inspect.signature(self.train)}")
         
@@ -523,7 +501,7 @@ class PricePredictionModel:
             del X_scaled, y_scaled
             gc.collect()
             
-            # Train-validation split
+            # Split data into training and validation sets
             split_idx = int(len(X_seq) * (1 - validation_split))
             X_train, X_val = X_seq[:split_idx], X_seq[split_idx:]
             y_train, y_val = y_seq[:split_idx], y_seq[split_idx:]
@@ -531,36 +509,6 @@ class PricePredictionModel:
             # Libérer la mémoire
             del X_seq, y_seq
             gc.collect()
-            
-            # Check if we're using online learning and if we've already trained a model
-            if online_learning and symbol in self.models:
-                self.logger.info(f"Using online learning for {symbol}")
-                
-                # Use the continual learning manager to update the model
-                model, history = self.online_learning.update_model(
-                    symbol=symbol,
-                    model=self.models[symbol],
-                    new_X=X_train,
-                    new_y=y_train,
-                    epochs=epochs,
-                    batch_size=32,
-                    validation_split=validation_split
-                )
-                
-                # Update the model in our collection
-                self.models[symbol] = model
-                
-                # Log the results
-                val_loss = history.history['val_loss'][-1]
-                self.logger.info(f"Online learning update completed for {symbol}, val_loss: {val_loss:.6f}")
-                
-                # Evaluate on validation data
-                self._evaluate_model(model, X_val, y_val, symbol)
-                
-                # Save the updated model
-                self.save(symbol)
-                
-                return history
             
             # Get hyperparameters
             if optimize:
@@ -740,7 +688,7 @@ class PricePredictionModel:
         plt.savefig(os.path.join(self.model_dir, f'{symbol}_prediction_plot.png'))
         plt.close()
 
-    def predict(self, data, symbol, days_ahead=1, use_calibration=True):
+    def predict(self, data, symbol, days_ahead=1):
         """
         Make predictions using the trained model.
         
@@ -748,7 +696,6 @@ class PricePredictionModel:
             data: DataFrame with OHLCV data
             symbol: Trading symbol
             days_ahead: How many days ahead to predict
-            use_calibration: Whether to calibrate predictions
             
         Returns:
             Dictionary with predictions and confidence intervals
@@ -802,55 +749,10 @@ class PricePredictionModel:
             # Calculate predicted price
             predicted_price = predictions_orig[-1][0]
             
-            # Use calibration for confidence intervals if requested
-            if use_calibration:
-                try:
-                    # Create a sample of recent predictions for calibration if we haven't yet
-                    calibration_file = os.path.join(self.model_dir, 'calibration', f'{symbol}_regression_calibration.pkl')
-                    
-                    # If no calibration model exists, create one with the available historical data
-                    if not os.path.exists(calibration_file):
-                        self.logger.info(f"Creating new regression calibration model for {symbol}")
-                        
-                        # Get historical predictions and actual values
-                        history_length = min(len(data) - self.sequence_length, 500)  # Use last 500 points max
-                        historical_X = X_seq[-history_length:]
-                        historical_preds = self.models[symbol].predict(historical_X)
-                        historical_preds_orig = self.scalers[symbol].inverse_transform(historical_preds)
-                        
-                        # Get corresponding actual values
-                        actual_values = data['Close'].iloc[-history_length:].values
-                        
-                        # Fit the calibrator with historical data
-                        self.regression_calibrator.fit(symbol, historical_preds_orig.flatten(), actual_values)
-                        self.regression_calibrator.save(calibration_file)
-                    else:
-                        # Load existing calibration model
-                        self.regression_calibrator.load(calibration_file)
-                    
-                    # Apply calibration to get prediction intervals
-                    calibrated = self.regression_calibrator.calibrate(symbol, np.array([predicted_price]))
-                    
-                    # Extract calibrated values
-                    lower_bound = calibrated['lower_bound'][0]
-                    upper_bound = calibrated['upper_bound'][0]
-                    confidence = self.regression_calibrator.confidence_level
-                    
-                    self.logger.info(f"Applied regression calibration for {symbol} prediction")
-                    
-                except Exception as e:
-                    self.logger.warning(f"Error in calibration, falling back to simple intervals: {str(e)}")
-                    # Fall back to simple confidence intervals
-                    std_dev = np.std(data['Close'].pct_change().dropna()) * np.sqrt(days_ahead)
-                    lower_bound = predicted_price * (1 - 1.96 * std_dev)
-                    upper_bound = predicted_price * (1 + 1.96 * std_dev)
-                    confidence = 0.95  # Default confidence level
-            else:
-                # Calculate simple confidence intervals without calibration
-                std_dev = np.std(data['Close'].pct_change().dropna()) * np.sqrt(days_ahead)
-                lower_bound = predicted_price * (1 - 1.96 * std_dev)
-                upper_bound = predicted_price * (1 + 1.96 * std_dev)
-                confidence = 0.95  # Default confidence level
+            # Calculate confidence intervals (simple approach)
+            std_dev = np.std(data['Close'].pct_change().dropna()) * np.sqrt(days_ahead)
+            lower_bound = predicted_price * (1 - 1.96 * std_dev)
+            upper_bound = predicted_price * (1 + 1.96 * std_dev)
             
             # Calculate percent change
             percent_change = ((predicted_price / last_price) - 1) * 100
@@ -862,7 +764,7 @@ class PricePredictionModel:
                 'percent_change': float(percent_change),
                 'lower_bound': float(lower_bound),
                 'upper_bound': float(upper_bound),
-                'confidence': float(confidence)
+                'confidence': float(1 - std_dev)  # Simple confidence measure
             }
             
         except Exception as e:
@@ -887,66 +789,45 @@ class PricePredictionModel:
 
     def save(self, symbol=None):
         """
-        Save the model and related data to disk.
+        Save model(s) and related data to disk.
         
         Args:
-            symbol: Trading symbol, if None, saves all models
+            symbol: Specific symbol to save, or None to save all
         """
-        if symbol is not None:
-            if symbol in self.models:
+        if symbol:
+            symbols = [symbol]
+        else:
+            symbols = list(self.models.keys())
+            
+        for sym in symbols:
+            if sym in self.models:
                 # Save model
-                model_path = os.path.join(self.model_dir, f'{symbol}_model.h5')
-                self.models[symbol].save(model_path)
+                model_path = os.path.join(self.model_dir, f'{sym}_model.h5')
+                self.models[sym].save(model_path)
                 
                 # Save scalers
-                scaler_path = os.path.join(self.model_dir, f'{symbol}_target_scaler.pkl')
-                feature_scalers_path = os.path.join(self.model_dir, f'{symbol}_feature_scalers.pkl')
-                
-                joblib.dump(self.scalers[symbol], scaler_path)
-                joblib.dump(self.feature_scalers[symbol], feature_scalers_path)
-                
-                # Save feature columns
-                if hasattr(self, 'feature_columns') and self.feature_columns:
-                    feature_columns_path = os.path.join(self.model_dir, f'{symbol}_feature_columns.pkl')
-                    joblib.dump(self.feature_columns, feature_columns_path)
-                
-                # Save online learning state for this symbol
-                self.online_learning.save_state()
-                
-                # Try to save calibration models if they exist
-                try:
-                    calibration_dir = os.path.join(self.model_dir, 'calibration')
-                    os.makedirs(calibration_dir, exist_ok=True)
+                if sym in self.scalers:
+                    joblib.dump(
+                        self.scalers[sym],
+                        os.path.join(self.model_dir, f'{sym}_target_scaler.pkl')
+                    )
                     
-                    if symbol in self.probability_calibrator.calibrators:
-                        prob_path = os.path.join(calibration_dir, f'{symbol}_probability_calibration.pkl')
-                        self.probability_calibrator.save(prob_path)
+                if sym in self.feature_scalers:
+                    joblib.dump(
+                        self.feature_scalers[sym],
+                        os.path.join(self.model_dir, f'{sym}_feature_scalers.pkl')
+                    )
                     
-                    if symbol in self.regression_calibrator.calibrators:
-                        reg_path = os.path.join(calibration_dir, f'{symbol}_regression_calibration.pkl')
-                        self.regression_calibrator.save(reg_path)
-                except Exception as e:
-                    self.logger.warning(f"Error saving calibration models: {str(e)}")
-                
-                self.logger.info(f"Saved model and data for {symbol}")
+                self.logger.info(f"Model and data for {sym} saved successfully")
             else:
-                self.logger.warning(f"Model for {symbol} not found, nothing to save")
-        else:
-            # Save all models
-            for sym in self.models.keys():
-                self.save(sym)
-            
-            # Save global online learning state
-            self.online_learning.save_state()
-            
-            self.logger.info("Saved all models and data")
+                self.logger.warning(f"No model found for {sym}")
 
     def load(self, symbol):
         """
-        Load a model from disk.
+        Load model and related data from disk.
         
         Args:
-            symbol: Trading symbol
+            symbol: Trading symbol to load
             
         Returns:
             True if successful, False otherwise
@@ -954,46 +835,25 @@ class PricePredictionModel:
         model_path = os.path.join(self.model_dir, f'{symbol}_model.h5')
         scaler_path = os.path.join(self.model_dir, f'{symbol}_target_scaler.pkl')
         feature_scalers_path = os.path.join(self.model_dir, f'{symbol}_feature_scalers.pkl')
-        feature_columns_path = os.path.join(self.model_dir, f'{symbol}_feature_columns.pkl')
         
-        if os.path.exists(model_path):
-            try:
-                # Load model
+        try:
+            if os.path.exists(model_path):
                 self.models[symbol] = load_model(model_path)
+                self.logger.info(f"Model loaded for {symbol}")
                 
-                # Load scalers
                 if os.path.exists(scaler_path):
                     self.scalers[symbol] = joblib.load(scaler_path)
-                
+                    self.logger.info(f"Target scaler loaded for {symbol}")
+                    
                 if os.path.exists(feature_scalers_path):
                     self.feature_scalers[symbol] = joblib.load(feature_scalers_path)
+                    self.logger.info(f"Feature scalers loaded for {symbol}")
                 
-                # Load feature columns
-                if os.path.exists(feature_columns_path):
-                    self.feature_columns = joblib.load(feature_columns_path)
-                
-                # Try to load online learning state
-                self.online_learning.load_state()
-                
-                # Try to load calibration models if they exist
-                try:
-                    calibration_dir = os.path.join(self.model_dir, 'calibration')
-                    
-                    prob_path = os.path.join(calibration_dir, f'{symbol}_probability_calibration.pkl')
-                    if os.path.exists(prob_path):
-                        self.probability_calibrator.load(prob_path)
-                    
-                    reg_path = os.path.join(calibration_dir, f'{symbol}_regression_calibration.pkl')
-                    if os.path.exists(reg_path):
-                        self.regression_calibrator.load(reg_path)
-                except Exception as e:
-                    self.logger.warning(f"Error loading calibration models: {str(e)}")
-                
-                self.logger.info(f"Loaded model and data for {symbol}")
                 return True
-            except Exception as e:
-                self.logger.error(f"Error loading model for {symbol}: {str(e)}")
+            else:
+                self.logger.warning(f"No saved model found for {symbol}")
                 return False
-        else:
-            self.logger.warning(f"Model file for {symbol} not found at {model_path}")
+                
+        except Exception as e:
+            self.logger.error(f"Error loading model for {symbol}: {str(e)}")
             return False

@@ -1,0 +1,698 @@
+{% extends "base.html" %}
+
+{% block title %}Model Explanations - EVIL2ROOT Trading Platform{% endblock %}
+
+{% block styles %}
+<style>
+    .explanation-card {
+        border-radius: 8px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        margin-bottom: 20px;
+        background: #fff;
+        overflow: hidden;
+    }
+    
+    .explanation-card .card-header {
+        background: linear-gradient(135deg, #2c3e50, #4a6572);
+        color: white;
+        padding: 15px 20px;
+        font-size: 18px;
+        font-weight: 600;
+    }
+    
+    .explanation-card .card-body {
+        padding: 20px;
+    }
+    
+    .feature-importance {
+        height: 400px;
+        margin: 10px 0 20px 0;
+    }
+    
+    .feature-bar {
+        display: flex;
+        margin-bottom: 8px;
+        align-items: center;
+    }
+    
+    .feature-name {
+        min-width: 150px;
+        margin-right: 10px;
+        font-weight: 500;
+    }
+    
+    .feature-value-bar {
+        height: 20px;
+        border-radius: 3px;
+        transition: width 0.5s ease;
+    }
+    
+    .feature-value {
+        margin-left: 10px;
+        font-weight: 500;
+    }
+    
+    .positive {
+        background-color: #4CAF50;
+    }
+    
+    .negative {
+        background-color: #F44336;
+    }
+    
+    .tab-content {
+        padding: 20px 0;
+    }
+    
+    .explanation-summary {
+        background-color: #f9f9f9;
+        border-radius: 5px;
+        padding: 15px;
+        margin-bottom: 20px;
+        border-left: 4px solid #3498db;
+    }
+    
+    .model-metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-bottom: 20px;
+    }
+    
+    .metric-card {
+        background: #fff;
+        border-radius: 5px;
+        padding: 15px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+    
+    .metric-title {
+        font-size: 14px;
+        color: #718096;
+        margin-bottom: 5px;
+    }
+    
+    .metric-value {
+        font-size: 24px;
+        font-weight: 600;
+        color: #2d3748;
+    }
+    
+    .shap-plot img {
+        max-width: 100%;
+        border-radius: 5px;
+        margin-top: 10px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    
+    .waterfall-title, .beeswarm-title {
+        font-weight: 500;
+        margin-top: 20px;
+        margin-bottom: 10px;
+        color: #4a5568;
+    }
+    
+    .confidence-indicator {
+        height: 24px;
+        border-radius: 4px;
+        background-color: #e2e8f0;
+        margin-top: 5px;
+        position: relative;
+    }
+    
+    .confidence-bar {
+        height: 100%;
+        border-radius: 4px;
+        background: linear-gradient(90deg, #38b2ac, #4299e1);
+        transition: width 0.5s ease;
+    }
+    
+    .confidence-label {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 12px;
+        font-weight: 600;
+        color: #1a202c;
+    }
+    
+    .recommendation-box {
+        border-radius: 5px;
+        padding: 15px;
+        margin-top: 20px;
+        background-color: #ebf8ff;
+        border-left: 4px solid #4299e1;
+        font-weight: 500;
+    }
+    
+    .buy-recommendation {
+        background-color: #f0fff4;
+        border-left: 4px solid #48bb78;
+    }
+    
+    .sell-recommendation {
+        background-color: #fff5f5;
+        border-left: 4px solid #f56565;
+    }
+    
+    .hold-recommendation {
+        background-color: #fffaf0;
+        border-left: 4px solid #ed8936;
+    }
+    
+    .explanation-text {
+        white-space: pre-line;
+        font-size: 14px;
+        line-height: 1.6;
+    }
+    
+    .risk-badge {
+        display: inline-block;
+        padding: 5px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        margin-top: 5px;
+    }
+    
+    .risk-low {
+        background-color: #d1fae5;
+        color: #047857;
+    }
+    
+    .risk-medium {
+        background-color: #fef3c7;
+        color: #b45309;
+    }
+    
+    .risk-high {
+        background-color: #fee2e2;
+        color: #b91c1c;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">Model Explanations</h1>
+    
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <div class="form-group">
+                <label for="symbolSelect">Select Symbol</label>
+                <select class="form-control" id="symbolSelect">
+                    {% for symbol in symbols %}
+                    <option value="{{ symbol }}">{{ symbol }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="form-group">
+                <label for="dateRange">Date Range</label>
+                <select class="form-control" id="dateRange">
+                    <option value="1d">1 Day</option>
+                    <option value="1w">1 Week</option>
+                    <option value="1m" selected>1 Month</option>
+                    <option value="3m">3 Months</option>
+                    <option value="6m">6 Months</option>
+                    <option value="1y">1 Year</option>
+                </select>
+            </div>
+        </div>
+        <div class="col-md-4 d-flex align-items-end">
+            <button class="btn btn-primary btn-block" id="generateExplanations">Generate Explanations</button>
+        </div>
+    </div>
+    
+    <!-- Decision Summary -->
+    <div class="explanation-card" id="decisionSummary" style="display: none;">
+        <div class="card-header">
+            Decision Summary
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-8">
+                    <div class="explanation-summary">
+                        <h5 id="predictionHeadline">Prediction for AAPL</h5>
+                        <p id="predictionSummary">Loading prediction summary...</p>
+                    </div>
+                    
+                    <div class="recommendation-box" id="recommendationBox">
+                        <span id="recommendationText">Analyzing market data...</span>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="model-metrics">
+                        <div class="metric-card">
+                            <div class="metric-title">Confidence</div>
+                            <div class="metric-value" id="confidenceValue">-</div>
+                            <div class="confidence-indicator">
+                                <div class="confidence-bar" id="confidenceBar" style="width: 0%"></div>
+                                <div class="confidence-label" id="confidenceLabel">0%</div>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-title">Risk Level</div>
+                            <div class="metric-value" id="riskValue">-</div>
+                            <div class="risk-badge risk-medium" id="riskBadge">MEDIUM</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Model Explanations Tabs -->
+    <ul class="nav nav-tabs" id="explanationTabs">
+        <li class="nav-item">
+            <a class="nav-link active" data-toggle="tab" href="#combinedExplanation">Combined Analysis</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" data-toggle="tab" href="#priceTab">Price Prediction</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" data-toggle="tab" href="#directionTab">Direction Prediction</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" data-toggle="tab" href="#volatilityTab">Volatility Prediction</a>
+        </li>
+    </ul>
+    
+    <div class="tab-content">
+        <!-- Combined Explanation Tab -->
+        <div class="tab-pane fade show active" id="combinedExplanation">
+            <div class="explanation-card">
+                <div class="card-header">
+                    Combined Model Analysis
+                </div>
+                <div class="card-body">
+                    <h5>Top Contributing Features</h5>
+                    <div class="feature-importance" id="combinedFeatureImportance">
+                        <div class="text-center py-5">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="sr-only">Loading...</span>
+                            </div>
+                            <p class="mt-2">Loading feature importance data...</p>
+                        </div>
+                    </div>
+                    
+                    <h5>Explanation</h5>
+                    <div class="explanation-text" id="combinedExplanationText">
+                        Loading explanation...
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Price Prediction Tab -->
+        <div class="tab-pane fade" id="priceTab">
+            <div class="explanation-card">
+                <div class="card-header">
+                    Price Prediction Model
+                </div>
+                <div class="card-body">
+                    <h5>Top Features for Price Prediction</h5>
+                    <div class="feature-importance" id="priceFeatureImportance">
+                        <div class="text-center py-5">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="sr-only">Loading...</span>
+                            </div>
+                            <p class="mt-2">Loading price features...</p>
+                        </div>
+                    </div>
+                    
+                    <h5>SHAP Plots</h5>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="waterfall-title">Waterfall Plot</div>
+                            <div class="shap-plot" id="priceWaterfallPlot">
+                                <p>No waterfall plot available</p>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="beeswarm-title">Beeswarm Plot</div>
+                            <div class="shap-plot" id="priceBeeswarmPlot">
+                                <p>No beeswarm plot available</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <h5 class="mt-4">Explanation</h5>
+                    <div class="explanation-text" id="priceExplanationText">
+                        Loading explanation...
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Direction Prediction Tab -->
+        <div class="tab-pane fade" id="directionTab">
+            <div class="explanation-card">
+                <div class="card-header">
+                    Direction Prediction Model
+                </div>
+                <div class="card-body">
+                    <h5>Top Features for Direction Prediction</h5>
+                    <div class="feature-importance" id="directionFeatureImportance">
+                        <div class="text-center py-5">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="sr-only">Loading...</span>
+                            </div>
+                            <p class="mt-2">Loading direction features...</p>
+                        </div>
+                    </div>
+                    
+                    <h5>SHAP Plots</h5>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="waterfall-title">Waterfall Plot</div>
+                            <div class="shap-plot" id="directionWaterfallPlot">
+                                <p>No waterfall plot available</p>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="beeswarm-title">Beeswarm Plot</div>
+                            <div class="shap-plot" id="directionBeeswarmPlot">
+                                <p>No beeswarm plot available</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <h5 class="mt-4">Explanation</h5>
+                    <div class="explanation-text" id="directionExplanationText">
+                        Loading explanation...
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Volatility Prediction Tab -->
+        <div class="tab-pane fade" id="volatilityTab">
+            <div class="explanation-card">
+                <div class="card-header">
+                    Volatility Prediction Model
+                </div>
+                <div class="card-body">
+                    <h5>Top Features for Volatility Prediction</h5>
+                    <div class="feature-importance" id="volatilityFeatureImportance">
+                        <div class="text-center py-5">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="sr-only">Loading...</span>
+                            </div>
+                            <p class="mt-2">Loading volatility features...</p>
+                        </div>
+                    </div>
+                    
+                    <h5>SHAP Plots</h5>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="waterfall-title">Waterfall Plot</div>
+                            <div class="shap-plot" id="volatilityWaterfallPlot">
+                                <p>No waterfall plot available</p>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="beeswarm-title">Beeswarm Plot</div>
+                            <div class="shap-plot" id="volatilityBeeswarmPlot">
+                                <p>No beeswarm plot available</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <h5 class="mt-4">Explanation</h5>
+                    <div class="explanation-text" id="volatilityExplanationText">
+                        Loading explanation...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    $(document).ready(function() {
+        // Handle generate explanations button click
+        $('#generateExplanations').click(function() {
+            const symbol = $('#symbolSelect').val();
+            const dateRange = $('#dateRange').val();
+            
+            showLoadingState();
+            
+            // Fetch explanation data from API
+            $.ajax({
+                url: '/api/model_explanations',
+                method: 'POST',
+                data: {
+                    symbol: symbol,
+                    date_range: dateRange
+                },
+                success: function(response) {
+                    if (response.error) {
+                        showError(response.error);
+                        return;
+                    }
+                    
+                    updateExplanations(response, symbol);
+                },
+                error: function(xhr, status, error) {
+                    showError("Could not fetch explanations: " + error);
+                }
+            });
+        });
+        
+        function showLoadingState() {
+            // Show loading indicators
+            $('#decisionSummary').show();
+            $('#predictionSummary').text('Analyzing market data...');
+            $('#recommendationText').text('Generating recommendation...');
+            
+            // Clear feature importance displays
+            $('#combinedFeatureImportance, #priceFeatureImportance, #directionFeatureImportance, #volatilityFeatureImportance')
+                .html('<div class="text-center py-5"><div class="spinner-border text-primary" role="status"><span class="sr-only">Loading...</span></div><p class="mt-2">Loading feature importance data...</p></div>');
+            
+            // Clear explanation texts
+            $('#combinedExplanationText, #priceExplanationText, #directionExplanationText, #volatilityExplanationText')
+                .text('Loading explanation...');
+                
+            // Clear SHAP plots
+            $('#priceWaterfallPlot, #priceBeeswarmPlot, #directionWaterfallPlot, #directionBeeswarmPlot, #volatilityWaterfallPlot, #volatilityBeeswarmPlot')
+                .html('<p>Loading plots...</p>');
+        }
+        
+        function showError(message) {
+            $('#decisionSummary').show();
+            $('#predictionSummary').html(`<div class="alert alert-danger">${message}</div>`);
+            $('#recommendationText').text('Could not generate recommendation');
+        }
+        
+        function updateExplanations(data, symbol) {
+            // Update decision summary
+            $('#predictionHeadline').text(`Prediction for ${symbol}`);
+            $('#predictionSummary').text(data.summary || 'Analysis completed successfully.');
+            
+            // Update recommendation
+            const recommendation = data.recommendation || 'HOLD';
+            $('#recommendationText').text(recommendation);
+            
+            // Style recommendation box based on action
+            $('#recommendationBox').removeClass('buy-recommendation sell-recommendation hold-recommendation');
+            if (recommendation.includes('BUY')) {
+                $('#recommendationBox').addClass('buy-recommendation');
+            } else if (recommendation.includes('SELL')) {
+                $('#recommendationBox').addClass('sell-recommendation');
+            } else {
+                $('#recommendationBox').addClass('hold-recommendation');
+            }
+            
+            // Update confidence
+            const confidence = data.confidence || 0;
+            $('#confidenceValue').text(`${(confidence * 100).toFixed(1)}%`);
+            $('#confidenceBar').css('width', `${confidence * 100}%`);
+            $('#confidenceLabel').text(`${(confidence * 100).toFixed(1)}%`);
+            
+            // Update risk level
+            const riskLevel = data.risk_level || 'medium';
+            $('#riskValue').text(riskLevel.toUpperCase());
+            $('#riskBadge').removeClass('risk-low risk-medium risk-high').addClass(`risk-${riskLevel}`);
+            $('#riskBadge').text(riskLevel.toUpperCase());
+            
+            // Update combined explanation
+            if (data.combined_explanation) {
+                $('#combinedExplanationText').text(data.combined_explanation);
+            } else {
+                $('#combinedExplanationText').text('No combined explanation available.');
+            }
+            
+            // Update model-specific explanations
+            if (data.price_explanation) {
+                $('#priceExplanationText').text(data.price_explanation);
+            } else {
+                $('#priceExplanationText').text('No price explanation available.');
+            }
+            
+            if (data.direction_explanation) {
+                $('#directionExplanationText').text(data.direction_explanation);
+            } else {
+                $('#directionExplanationText').text('No direction explanation available.');
+            }
+            
+            if (data.volatility_explanation) {
+                $('#volatilityExplanationText').text(data.volatility_explanation);
+            } else {
+                $('#volatilityExplanationText').text('No volatility explanation available.');
+            }
+            
+            // Update SHAP plots
+            updateShapPlots(data);
+            
+            // Update feature importances
+            updateFeatureImportance(data);
+        }
+        
+        function updateShapPlots(data) {
+            // Price model plots
+            if (data.plots && data.plots.price) {
+                const pricePlots = data.plots.price;
+                
+                if (pricePlots.waterfall_path) {
+                    $('#priceWaterfallPlot').html(`<img src="${pricePlots.waterfall_path}" alt="Price Waterfall Plot" />`);
+                } else {
+                    $('#priceWaterfallPlot').html('<p>No waterfall plot available</p>');
+                }
+                
+                if (pricePlots.beeswarm_path) {
+                    $('#priceBeeswarmPlot').html(`<img src="${pricePlots.beeswarm_path}" alt="Price Beeswarm Plot" />`);
+                } else {
+                    $('#priceBeeswarmPlot').html('<p>No beeswarm plot available</p>');
+                }
+            }
+            
+            // Direction model plots
+            if (data.plots && data.plots.direction) {
+                const directionPlots = data.plots.direction;
+                
+                if (directionPlots.waterfall_path) {
+                    $('#directionWaterfallPlot').html(`<img src="${directionPlots.waterfall_path}" alt="Direction Waterfall Plot" />`);
+                } else {
+                    $('#directionWaterfallPlot').html('<p>No waterfall plot available</p>');
+                }
+                
+                if (directionPlots.beeswarm_path) {
+                    $('#directionBeeswarmPlot').html(`<img src="${directionPlots.beeswarm_path}" alt="Direction Beeswarm Plot" />`);
+                } else {
+                    $('#directionBeeswarmPlot').html('<p>No beeswarm plot available</p>');
+                }
+            }
+            
+            // Volatility model plots
+            if (data.plots && data.plots.volatility) {
+                const volatilityPlots = data.plots.volatility;
+                
+                if (volatilityPlots.waterfall_path) {
+                    $('#volatilityWaterfallPlot').html(`<img src="${volatilityPlots.waterfall_path}" alt="Volatility Waterfall Plot" />`);
+                } else {
+                    $('#volatilityWaterfallPlot').html('<p>No waterfall plot available</p>');
+                }
+                
+                if (volatilityPlots.beeswarm_path) {
+                    $('#volatilityBeeswarmPlot').html(`<img src="${volatilityPlots.beeswarm_path}" alt="Volatility Beeswarm Plot" />`);
+                } else {
+                    $('#volatilityBeeswarmPlot').html('<p>No beeswarm plot available</p>');
+                }
+            }
+        }
+        
+        function updateFeatureImportance(data) {
+            // Helper function to create feature bars
+            function createFeatureBars(features, elementId) {
+                const container = $(`#${elementId}`);
+                container.empty();
+                
+                if (!features || Object.keys(features).length === 0) {
+                    container.html('<p>No feature importance data available</p>');
+                    return;
+                }
+                
+                // Convert to array and sort by importance
+                const featureArray = Object.entries(features).map(([name, value]) => ({ name, value }));
+                featureArray.sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+                
+                // Find max absolute value for scaling
+                const maxAbsValue = Math.max(...featureArray.map(f => Math.abs(f.value)));
+                
+                // Create feature bars
+                featureArray.forEach(feature => {
+                    const barWidth = Math.abs(feature.value) / maxAbsValue * 100;
+                    const isPositive = feature.value >= 0;
+                    
+                    const featureBar = $(`
+                        <div class="feature-bar">
+                            <div class="feature-name">${feature.name}</div>
+                            <div class="feature-value-bar ${isPositive ? 'positive' : 'negative'}" 
+                                style="width: ${barWidth}%"></div>
+                            <div class="feature-value">${feature.value.toFixed(4)}</div>
+                        </div>
+                    `);
+                    
+                    container.append(featureBar);
+                });
+            }
+            
+            // Update combined feature importance
+            if (data.top_features) {
+                // Combine all feature importances for the combined view
+                const combinedFeatures = {};
+                
+                // Add price features
+                if (data.top_features.price) {
+                    Object.entries(data.top_features.price).forEach(([name, value]) => {
+                        combinedFeatures[name] = (combinedFeatures[name] || 0) + value;
+                    });
+                }
+                
+                // Add direction features
+                if (data.top_features.direction) {
+                    Object.entries(data.top_features.direction).forEach(([name, value]) => {
+                        combinedFeatures[name] = (combinedFeatures[name] || 0) + value;
+                    });
+                }
+                
+                // Add volatility features
+                if (data.top_features.volatility) {
+                    Object.entries(data.top_features.volatility).forEach(([name, value]) => {
+                        combinedFeatures[name] = (combinedFeatures[name] || 0) + value;
+                    });
+                }
+                
+                createFeatureBars(combinedFeatures, 'combinedFeatureImportance');
+                
+                // Update individual model feature importances
+                if (data.top_features.price) {
+                    createFeatureBars(data.top_features.price, 'priceFeatureImportance');
+                } else {
+                    $('#priceFeatureImportance').html('<p>No price feature importance data available</p>');
+                }
+                
+                if (data.top_features.direction) {
+                    createFeatureBars(data.top_features.direction, 'directionFeatureImportance');
+                } else {
+                    $('#directionFeatureImportance').html('<p>No direction feature importance data available</p>');
+                }
+                
+                if (data.top_features.volatility) {
+                    createFeatureBars(data.top_features.volatility, 'volatilityFeatureImportance');
+                } else {
+                    $('#volatilityFeatureImportance').html('<p>No volatility feature importance data available</p>');
+                }
+            } else {
+                $('#combinedFeatureImportance, #priceFeatureImportance, #directionFeatureImportance, #volatilityFeatureImportance')
+                    .html('<p>No feature importance data available</p>');
+            }
+        }
+    });
+</script>
+{% endblock %} 

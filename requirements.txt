@@ -48,6 +48,26 @@ h5py>=3.8.0
 sqlalchemy>=2.0.15
 optuna-integration[tfkeras]>=3.3.0
 
+# Explainable AI / Ensemble Learning - NOUVEAU
+shap>=0.43.0
+lime>=0.2.0
+interpret>=0.4.2
+interpret-core>=0.4.2
+alibi>=0.9.5
+dalex>=1.5.0
+econml>=0.14.1
+causalml>=0.13.0
+bayesian-optimization>=1.4.3
+mlflow>=2.11.0
+wandb>=0.16.5
+mlxtend>=0.23.0
+catboost>=1.2.3
+eli5>=0.13.0
+graphviz>=0.20.1  # Pour la visualisation des arbres
+dtreeviz>=2.2.2   # Pour la visualisation des arbres de décision
+yellowbrick>=1.5  # Pour la visualisation des modèles
+plotly_express>=0.4.1  # Pour la visualisation des explications
+
 # Trading Analysis
 ta>=0.10.2
 python-binance>=1.0.17
