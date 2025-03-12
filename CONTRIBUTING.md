@@ -17,7 +17,7 @@ Nous sommes ravis que vous souhaitiez contribuer au projet EVIL2ROOT Trading Bot
 
 ## Code de conduite
 
-Ce projet et tous ses participants sont régis par notre [Code de Conduite](CODE_OF_CONDUCT.md). En participant, vous êtes censé respecter ce code. Veuillez signaler tout comportement inacceptable à evil2root@protonmail.com.
+Ce projet et tous ses participants sont régis par notre [Code de Conduite](CODE_OF_CONDUCT.md). En participant, vous êtes censé respecter ce code. Veuillez signaler tout comportement inacceptable.
 
 ## Comment puis-je contribuer?
 

@@ -474,20 +474,154 @@ class EnsembleIntegrator:
     
     def update_trading_bot(self, trading_bot):
         """
-        Update the trading bot with ensemble model predictions.
+        Met à jour le bot de trading avec les modèles d'ensemble prédictifs.
         
         Args:
-            trading_bot: Trading bot instance to update
+            trading_bot: Instance du bot de trading à mettre à jour
             
         Returns:
-            Updated trading bot
+            Bot de trading mis à jour
         """
-        # This method would integrate with the trading bot
-        # Implementation depends on trading bot interface
+        logger.info("Intégration des modèles d'ensemble au bot de trading")
         
-        # Example: Add ensemble models to trading bot
-        if hasattr(trading_bot, 'ensemble_model'):
+        # Ajouter l'instance ensemble_model au trading_bot
+        if not hasattr(trading_bot, 'ensemble_model'):
+            setattr(trading_bot, 'ensemble_model', self)
+            logger.info("Attribut ensemble_model ajouté au trading_bot")
+        else:
             trading_bot.ensemble_model = self
-            logger.info("Updated trading bot with ensemble model")
+            logger.info("Attribut ensemble_model mis à jour sur le trading_bot")
         
+        # Étendre la méthode get_model_predictions pour inclure les prédictions de l'ensemble
+        original_get_model_predictions = trading_bot.get_model_predictions
+        
+        def enhanced_get_model_predictions(symbol):
+            """Version améliorée de get_model_predictions avec les prédictions d'ensemble"""
+            # Obtenir les prédictions des modèles standards
+            predictions = original_get_model_predictions(symbol)
+            
+            if predictions is None:
+                predictions = {}
+                
+            try:
+                # Ajouter les prédictions d'ensemble si les données de marché existent
+                if symbol in trading_bot.market_data and not trading_bot.market_data[symbol].empty:
+                    data = trading_bot.market_data[symbol].tail(30).copy()
+                    
+                    # Générer les prédictions d'ensemble
+                    ensemble_result = self.predict(data, symbol)
+                    
+                    if ensemble_result:
+                        # Ajouter les prédictions d'ensemble au dictionnaire de résultats
+                        predictions['ensemble_price'] = ensemble_result.get('price')
+                        predictions['ensemble_direction'] = ensemble_result.get('direction')
+                        predictions['ensemble_volatility'] = ensemble_result.get('volatility')
+                        predictions['ensemble_confidence'] = ensemble_result.get('confidence')
+                        predictions['ensemble_recommendation'] = ensemble_result.get('recommendation')
+                        predictions['ensemble_risk_level'] = ensemble_result.get('risk_level')
+                        
+                        # Générer un rapport d'explication si l'IA explicable est activée
+                        if self.use_explainable_ai:
+                            explanation = self.generate_explanation_report(symbol, data)
+                            predictions['ensemble_explanation'] = explanation
+                        
+                        logger.info(f"Prédictions d'ensemble ajoutées pour {symbol}")
+            except Exception as e:
+                logger.error(f"Erreur lors de l'ajout des prédictions d'ensemble pour {symbol}: {e}")
+                
+            return predictions
+        
+        # Remplacer la méthode par la version améliorée
+        trading_bot.get_model_predictions = enhanced_get_model_predictions
+        
+        # Étendre la méthode combine_signals pour utiliser les prédictions d'ensemble
+        original_combine_signals = trading_bot.combine_signals
+        
+        def enhanced_combine_signals(predicted_price, indicator_signal, risk_score, tp, sl, rl_signal, sentiment_score):
+            """Version améliorée de combine_signals qui intègre les prédictions d'ensemble"""
+            # Appeler d'abord la méthode originale
+            original_decision = original_combine_signals(predicted_price, indicator_signal, risk_score, tp, sl, rl_signal, sentiment_score)
+            
+            # Récupérer le symbole actuel (contexte de l'appel)
+            # Nous devons extraire le symbole du contexte actuel de trading_bot
+            current_symbol = None
+            if hasattr(trading_bot, 'current_symbol'):
+                current_symbol = trading_bot.current_symbol
+                
+            # Si nous n'avons pas de symbole ou pas de prédictions d'ensemble,
+            # retourner simplement la décision originale
+            if not current_symbol:
+                return original_decision
+                
+            try:
+                # Récupérer les prédictions d'ensemble pour ce symbole
+                predictions = trading_bot.get_model_predictions(current_symbol)
+                
+                if predictions and 'ensemble_recommendation' in predictions:
+                    ensemble_recommendation = predictions['ensemble_recommendation']
+                    ensemble_confidence = predictions.get('ensemble_confidence', 0.5)
+                    
+                    # Si la confiance de l'ensemble est élevée (>0.7), utiliser sa recommandation
+                    if ensemble_confidence > 0.7:
+                        logger.info(f"Utilisation de la recommandation d'ensemble avec confiance élevée: {ensemble_recommendation}")
+                        return ensemble_recommendation
+                    
+                    # Sinon, combiner les deux décisions
+                    # Si les deux sont d'accord, utiliser cette décision
+                    if ensemble_recommendation == original_decision:
+                        logger.info(f"Décision unanime entre ensemble et modèles standards: {original_decision}")
+                        return original_decision
+                    
+                    # Si désaccord, favoriser la décision originale mais tenir compte de l'ensemble
+                    # avec un poids proportionnel à sa confiance
+                    if ensemble_confidence > 0.5:
+                        logger.info(f"Désaccord - préférence pour ensemble ({ensemble_recommendation}) vs original ({original_decision})")
+                        return ensemble_recommendation
+                    else:
+                        logger.info(f"Désaccord - préférence pour original ({original_decision}) vs ensemble ({ensemble_recommendation})")
+                        return original_decision
+            except Exception as e:
+                logger.error(f"Erreur lors de l'intégration des signaux d'ensemble: {e}")
+            
+            # Par défaut, retourner la décision originale
+            return original_decision
+        
+        # Remplacer la méthode par la version améliorée
+        trading_bot.combine_signals = enhanced_combine_signals
+        
+        # Définir un attribut pour suivre le symbole actuel en cours de traitement
+        if not hasattr(trading_bot, 'current_symbol'):
+            trading_bot.current_symbol = None
+        
+        # Étendre la méthode execute_trades pour suivre le symbole actuel
+        original_execute_trades = trading_bot.execute_trades
+        
+        def enhanced_execute_trades(data_manager):
+            result = None
+            try:
+                # Obtenir les symboles disponibles
+                symbols = list(data_manager.data.keys())
+                
+                # Traiter chaque symbole
+                for symbol in symbols:
+                    # Mettre à jour le symbole actuel
+                    trading_bot.current_symbol = symbol
+                    
+                # Exécuter la méthode originale
+                result = original_execute_trades(data_manager)
+                
+                # Réinitialiser le symbole actuel
+                trading_bot.current_symbol = None
+                
+            except Exception as e:
+                logger.error(f"Erreur dans enhanced_execute_trades: {e}")
+                # Réinitialiser le symbole actuel en cas d'erreur
+                trading_bot.current_symbol = None
+                
+            return result
+        
+        # Remplacer la méthode par la version améliorée
+        trading_bot.execute_trades = enhanced_execute_trades
+        
+        logger.info("Bot de trading mis à jour avec intégration complète de l'ensemble")
         return trading_bot 
