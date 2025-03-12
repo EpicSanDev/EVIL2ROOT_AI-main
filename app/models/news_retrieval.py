@@ -356,21 +356,14 @@ class NewsRetriever:
             Liste combinée de news provenant de toutes les sources
         """
         # Limiter le nombre de résultats par source
-        per_source = max(5, max_results // 3)
+        per_source = max(8, max_results // 2)
         
-        # Récupérer les news des différentes sources
-        try:
-            claude_news = self.get_news_openrouter(symbol, per_source)
-            logging.info(f"Récupéré {len(claude_news)} nouvelles via Claude pour {symbol}")
-        except Exception as e:
-            logging.error(f"Erreur lors de la récupération des nouvelles via Claude: {e}")
-            claude_news = []
-            
+        # Récupérer les news uniquement depuis Perplexity Sonar (plus Claude comme demandé)
         try:
             sonar_news = self.get_news_perplexity_sonar(symbol, per_source)
-            logging.info(f"Récupéré {len(sonar_news)} nouvelles via Sonar pour {symbol}")
+            logging.info(f"Récupéré {len(sonar_news)} nouvelles via Perplexity Sonar pour {symbol}")
         except Exception as e:
-            logging.error(f"Erreur lors de la récupération des nouvelles via Sonar: {e}")
+            logging.error(f"Erreur lors de la récupération des nouvelles via Perplexity Sonar: {e}")
             sonar_news = []
             
         try:
@@ -380,19 +373,9 @@ class NewsRetriever:
             logging.error(f"Erreur lors de la récupération des nouvelles via API: {e}")
             api_news = []
         
-        # Combiner les résultats en évitant les doublons (basé sur les titres)
-        combined_news = claude_news.copy() if claude_news else []
+        # Utiliser Perplexity Sonar comme source principale
+        combined_news = sonar_news.copy() if sonar_news else []
         titles = {news["title"].lower() for news in combined_news}
-        
-        # Ajouter les news de Sonar
-        for news in sonar_news:
-            if news["title"].lower() not in titles:
-                combined_news.append(news)
-                titles.add(news["title"].lower())
-                
-                # Limiter au nombre maximum demandé
-                if len(combined_news) >= max_results:
-                    break
         
         # Ajouter les news des API financières
         for news in api_news:
@@ -419,7 +402,7 @@ class NewsRetriever:
                 "impact": "neutral",
                 "relevance_score": 0.1
             }]
-        
+            
         return combined_news[:max_results]
 
     def get_news_headlines(self, symbol: str, max_results: int = 10) -> List[str]:
