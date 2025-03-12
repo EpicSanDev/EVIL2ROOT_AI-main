@@ -27,12 +27,12 @@ EVIL2ROOT Trading Bot est conçu comme une architecture de microservices communi
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     Client Web (Browser)                     │
+│                     Client Web (Browser)                    │
 └───────────────────────────┬─────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                     Reverse Proxy (Nginx)                    │
+│                     Reverse Proxy (Nginx)                   │
 └───────────────────────────┬─────────────────────────────────┘
                             │
                 ┌───────────┴───────────┐
@@ -49,8 +49,8 @@ EVIL2ROOT Trading Bot est conçu comme une architecture de microservices communi
                         │
                         ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                       Message Bus                            │
-│                        (Redis)                               │
+│                       Message Bus                           │
+│                        (Redis)                              │
 └────┬─────────────────────┬──────────────────────┬───────────┘
      │                     │                      │
      ▼                     ▼                      ▼

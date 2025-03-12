@@ -215,7 +215,8 @@ class DailyAnalysisBot:
                 logger.info(f"Training new sentiment model for {symbol}")
                 # Récupérer des données supplémentaires pour l'entraînement
                 news = self.news_retriever.get_combined_news(symbol, max_results=50)
-                self.sentiment_analyzers[symbol].train(market_data, news, symbol)
+                # Use named parameters for clarity and to ensure proper passing
+                self.sentiment_analyzers[symbol].train(market_data=market_data, news=news, symbol=symbol)
                 
                 # Sauvegarder le modèle
                 pathlib.Path(self.models_dir).mkdir(exist_ok=True)
@@ -240,7 +241,8 @@ class DailyAnalysisBot:
                 self.risk_managers[symbol].load(model_path)
             else:
                 logger.info(f"Training new risk model for {symbol}")
-                self.risk_managers[symbol].train(market_data, symbol)
+                # Use named parameters for clarity and to ensure proper parameter passing
+                self.risk_managers[symbol].train(data=market_data, symbol=symbol)
                 
                 # Sauvegarder le modèle
                 pathlib.Path(self.models_dir).mkdir(exist_ok=True)
@@ -265,7 +267,8 @@ class DailyAnalysisBot:
                 self.indicator_managers[symbol].load(model_path)
             else:
                 logger.info(f"Training new indicator model for {symbol}")
-                self.indicator_managers[symbol].train(market_data, symbol)
+                # Use named parameters for clarity and to ensure proper parameter passing
+                self.indicator_managers[symbol].train(data=market_data, symbol=symbol)
                 
                 # Sauvegarder le modèle
                 pathlib.Path(self.models_dir).mkdir(exist_ok=True)
@@ -398,20 +401,22 @@ class DailyAnalysisBot:
             
             # If 'Adj Close' is a MultiIndex DataFrame (when downloaded as a list), get the first level
             if isinstance(data.columns, pd.MultiIndex):
-                # Select data for the specific symbol
-                data = data.xs(symbol, axis=1, level=1, drop_level=True)
+                # This ensures we get a clean DataFrame without the symbol as a level in the columns
+                data = data.xs(symbol, level=0, axis=1)
             
             # Check again if data is empty after processing
             if data.empty:
                 raise ValueError(f"No valid data received for {symbol} after processing")
                 
             # Ajouter les indicateurs techniques
-            self._add_technical_indicators(data)
+            if data is not None and not data.empty:
+                self._add_technical_indicators(data)
             
             # Log data size for debugging
             logger.info(f"Downloaded {len(data)} data points for {symbol}")
             
             return data
+            
         except Exception as e:
             logger.error(f"Error fetching market data for {symbol}: {e}")
             raise
