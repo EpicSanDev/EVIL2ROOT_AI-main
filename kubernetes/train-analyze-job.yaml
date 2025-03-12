@@ -1,0 +1,151 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: train-and-analyze
+  namespace: evil2root-trading
+spec:
+  ttlSecondsAfterFinished: 86400  # Les jobs sont conservés pendant 24 heures après leur fin
+  template:
+    spec:
+      containers:
+      - name: train-analyze
+        image: evil2root/trading-bot:latest
+        imagePullPolicy: Always
+        args: ["train-and-analyze"]
+        env:
+        - name: FLASK_APP
+          valueFrom:
+            configMapKeyRef:
+              name: trading-bot-config
+              key: FLASK_APP
+        - name: FLASK_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: trading-bot-config
+              key: FLASK_ENV
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: trading-bot-secrets
+              key: DB_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: trading-bot-secrets
+              key: DB_PASSWORD
+        - name: DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: trading-bot-secrets
+              key: DB_NAME
+        - name: DB_HOST
+          value: "postgres"
+        - name: REDIS_HOST
+          value: "redis"
+        - name: TF_FORCE_GPU_ALLOW_GROWTH
+          value: "true"
+        resources:
+          requests:
+            memory: "4Gi"
+            cpu: "2000m"
+            nvidia.com/gpu: 1
+          limits:
+            memory: "16Gi"
+            cpu: "4000m"
+            nvidia.com/gpu: 1
+        volumeMounts:
+        - name: app-data
+          mountPath: /app/data
+        - name: app-logs
+          mountPath: /app/logs
+        - name: saved-models
+          mountPath: /app/saved_models
+      volumes:
+      - name: app-data
+        persistentVolumeClaim:
+          claimName: app-data
+      - name: app-logs
+        persistentVolumeClaim:
+          claimName: app-logs
+      - name: saved-models
+        persistentVolumeClaim:
+          claimName: saved-models
+      restartPolicy: Never
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: scheduled-train-analyze
+  namespace: evil2root-trading
+spec:
+  schedule: "0 0 * * *"  # Tous les jours à minuit
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 86400  # Les jobs sont conservés pendant 24 heures après leur fin
+      template:
+        spec:
+          containers:
+          - name: train-analyze
+            image: evil2root/trading-bot:latest
+            imagePullPolicy: Always
+            args: ["train-and-analyze"]
+            env:
+            - name: FLASK_APP
+              valueFrom:
+                configMapKeyRef:
+                  name: trading-bot-config
+                  key: FLASK_APP
+            - name: FLASK_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: trading-bot-config
+                  key: FLASK_ENV
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: trading-bot-secrets
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: trading-bot-secrets
+                  key: DB_PASSWORD
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: trading-bot-secrets
+                  key: DB_NAME
+            - name: DB_HOST
+              value: "postgres"
+            - name: REDIS_HOST
+              value: "redis"
+            - name: TF_FORCE_GPU_ALLOW_GROWTH
+              value: "true"
+            resources:
+              requests:
+                memory: "4Gi"
+                cpu: "2000m"
+                nvidia.com/gpu: 1
+              limits:
+                memory: "16Gi"
+                cpu: "4000m"
+                nvidia.com/gpu: 1
+            volumeMounts:
+            - name: app-data
+              mountPath: /app/data
+            - name: app-logs
+              mountPath: /app/logs
+            - name: saved-models
+              mountPath: /app/saved_models
+          volumes:
+          - name: app-data
+            persistentVolumeClaim:
+              claimName: app-data
+          - name: app-logs
+            persistentVolumeClaim:
+              claimName: app-logs
+          - name: saved-models
+            persistentVolumeClaim:
+              claimName: saved-models
+          restartPolicy: Never 

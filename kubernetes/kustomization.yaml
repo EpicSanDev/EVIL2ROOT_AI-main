@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secrets.yaml
+  - storage.yaml
+  - db-deployment.yaml
+  - redis-deployment.yaml
+  - web-deployment.yaml
+  - analysis-bot-deployment.yaml
+  - market-scheduler-deployment.yaml
+  - train-analyze-job.yaml
+  - monitoring-deployment.yaml
+  - adminer-deployment.yaml 
