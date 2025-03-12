@@ -83,6 +83,10 @@ def create_app(testing=False):
     from app.routes import main_blueprint
     app.register_blueprint(main_blueprint)
     
+    # Enregistrer le blueprint de santé pour les health checks Docker
+    from app.routes.health import health_bp
+    app.register_blueprint(health_bp)
+    
     # Register API routes
     register_api_routes(app)
     

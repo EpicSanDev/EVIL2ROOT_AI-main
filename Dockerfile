@@ -1,5 +1,16 @@
 FROM python:3.9-slim
 
+# Arguments de build pour les métadonnées
+ARG BUILD_DATE
+ARG GIT_COMMIT
+
+# Métadonnées pour la traçabilité et la gestion des images
+LABEL org.opencontainers.image.created=${BUILD_DATE} \
+      org.opencontainers.image.revision=${GIT_COMMIT} \
+      org.opencontainers.image.title="Evil2Root AI" \
+      org.opencontainers.image.vendor="Evil2Root" \
+      maintainer="Evil2Root Team"
+
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -41,6 +52,10 @@ RUN mkdir -p data logs saved_models
 # Set up environment
 ENV FLASK_APP=run.py \
     FLASK_ENV=production
+
+# Health check pour DigitalOcean et Docker Swarm
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+  CMD curl -f http://localhost:5000/health || exit 1
 
 # Make scripts executable
 RUN chmod +x start_daily_analysis.py \
