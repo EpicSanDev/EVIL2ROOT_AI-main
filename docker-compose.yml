@@ -24,11 +24,11 @@ services:
     build: .
     image: evil2root/trading-bot:latest
     container_name: trading-bot-analysis
-    command: analysis-bot
+    entrypoint: ["/app/analysis-bot-entrypoint.sh"]
     volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
-      - ./saved_models:/app/saved_models
+      - ./data:/app/data:rw
+      - ./logs:/app/logs:rw
+      - ./saved_models:/app/saved_models:rw
     env_file:
       - .env
     depends_on:

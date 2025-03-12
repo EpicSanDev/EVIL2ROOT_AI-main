@@ -53,7 +53,8 @@ ENV FLASK_ENV=production
 RUN chmod +x start_daily_analysis.py \
     && chmod +x docker-entrypoint.sh \
     && chmod +x start_market_scheduler.sh \
-    && chmod +x stop_market_scheduler.sh
+    && chmod +x stop_market_scheduler.sh \
+    && chmod +x analysis-bot-entrypoint.sh
 
 # Expose port
 EXPOSE 5000

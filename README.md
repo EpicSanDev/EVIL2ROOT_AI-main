@@ -39,13 +39,13 @@ Un système de trading automatisé complet avec validation des décisions par IA
 - [Sécurité](#-sécurité)
 - [Avertissement](#-avertissement)
 - [Contact](#-contact)
-- [Fonctionnalités d'analyse avec entraînement préalable des modèles](#fonctionnalités-d'analyse-avec-entraînement-préalable-des-modèles)
+- [Fonctionnalités d'analyse avec entraînement préalable des modèles](#fonctionnalités-danalyse-avec-entraînement-préalable-des-modèles)
 
-## �� Caractéristiques
+## 🚀 Caractéristiques
 
 - **Modèles de Trading Multiples**: 
   - Indicateurs techniques traditionnels
-  - Prédiction de prix par apprentage profond
+  - Prédiction de prix par apprentage profond (LSTM, GRU, Transformers)
   - Apprentissage par renforcement
   - Analyse de sentiment du marché
   - Analyse de news financières
@@ -79,6 +79,11 @@ Un système de trading automatisé complet avec validation des décisions par IA
   - Microservices bien isolés
   - Haute disponibilité et résilience
 
+- **Analyse Quotidienne et Planifiée**:
+  - Analyses automatiques programmées du marché
+  - Rapports d'analyse détaillés
+  - Adaptabilité aux conditions changeantes du marché
+
 ## 🏗 Architecture du Système
 
 Le système est conçu comme une architecture microservices, avec plusieurs composants conteneurisés interagissant via Redis et une base de données PostgreSQL partagée:
@@ -108,7 +113,7 @@ Le système est conçu comme une architecture microservices, avec plusieurs comp
 ### Composants Principaux:
 
 - **Trading Bot**: Logique de trading principale et exécution de modèles
-- **AI Validation**: Système IA secondaire qui valide les décisions de trading
+- **AI Validator**: Système IA secondaire qui valide les décisions de trading
 - **Web UI**: Tableau de bord basé sur Flask pour la surveillance
 - **PostgreSQL**: Base de données pour stocker les données de trading et les métriques
 - **Redis**: Communication entre les services de trading
@@ -118,10 +123,11 @@ Le système est conçu comme une architecture microservices, avec plusieurs comp
 - **Backend**: Python 3.8+, Flask, Redis
 - **Base de Données**: PostgreSQL
 - **Modèles IA**: 
-  - TensorFlow/Keras pour les réseaux de neurones
+  - TensorFlow/Keras pour les réseaux de neurones (LSTM, GRU, Conv1D)
   - scikit-learn pour les modèles classiques
   - Stable Baselines pour l'apprentissage par renforcement
   - Claude 3.7 pour la validation IA avancée
+  - Transformers et SentenceTransformer pour l'analyse de texte
 - **Frontend**: HTML5, CSS3, JavaScript, Chart.js
 - **Infrastructure**: Docker, Docker Compose
 - **APIs Externes**: 
@@ -155,7 +161,9 @@ Le système est conçu comme une architecture microservices, avec plusieurs comp
 
 3. Définissez les permissions des scripts d'entrée:
    ```bash
-   chmod +x docker/services/entrypoint-*.sh
+   chmod +x docker-entrypoint.sh
+   chmod +x start_docker.sh
+   chmod +x stop_docker.sh
    ```
 
 4. Construisez et démarrez les conteneurs:
@@ -163,9 +171,8 @@ Le système est conçu comme une architecture microservices, avec plusieurs comp
    # Utiliser docker compose directement
    docker compose up --build
    
-   # OU en utilisant le Makefile fourni
-   make build
-   make up
+   # OU en utilisant le script de démarrage
+   ./start_docker.sh
    ```
 
 ### Configuration
@@ -176,11 +183,11 @@ Options de configuration clés dans `.env`:
 |----------|-------------|-------------------|
 | `ENABLE_LIVE_TRADING` | Activer le trading en direct | `false` |
 | `RISK_PER_TRADE` | Pourcentage de risque par transaction | `0.02` (2%) |
-| `CONFIDENCE_THRESHOLD` | Confiance minimale de l'IA pour valider | `0.75` |
-| `SYMBOLS` | Liste de symboles à trader | `AAPL,MSFT,GOOGL` |
+| `CONFIDENCE_THRESHOLD` | Confiance minimale de l'IA pour valider | `0.65` |
+| `SYMBOLS` | Liste de symboles à trader | `AAPL,MSFT,GOOGL,AMZN,TSLA,BTC-USD,ETH-USD` |
 | `TELEGRAM_TOKEN` | Token du bot Telegram | - |
 | `OPENROUTER_API_KEY` | Clé API OpenRouter pour Claude | - |
-| `CLAUDE_MODEL` | ID du modèle Claude | `anthropic/claude-3.7` |
+| `CLAUDE_MODEL` | ID du modèle Claude | `anthropic/claude-3.7-sonnet` |
 
 Consultez le fichier `.env.example` pour la liste complète des variables de configuration.
 
@@ -190,15 +197,21 @@ Consultez le fichier `.env.example` pour la liste complète des variables de con
 
 ```bash
 # Démarrer tous les services en arrière-plan
-make up
+./start_docker.sh
 
-# Démarrer avec les logs visibles dans le terminal
-make up-log
+# Pour arrêter tous les services
+./stop_docker.sh
+
+# Pour démarrer avec entraînement forcé des modèles
+./start_docker_force_train.sh
+
+# Pour démarrer l'analyse de marché planifiée
+./start_market_scheduler.sh
 ```
 
 ### Interface Web
 
-Accédez à l'interface web à l'adresse http://localhost:5001/ pour:
+Accédez à l'interface web à l'adresse http://localhost:5000/ pour:
 - Voir le tableau de bord des performances
 - Consulter l'historique des transactions
 - Configurer les paramètres du bot
@@ -236,198 +249,87 @@ Le composant de trading principal qui:
 - Exécute les transactions validées
 - Gère les positions ouvertes avec trailing stops et take-profits
 
-#### Modèles IA
-
-Le système intègre plusieurs modèles d'IA pour différents aspects du trading:
-
-1. **PricePredictionModel**: Utilise des réseaux de neurones LSTM pour prédire les mouvements de prix
-2. **IndicatorManagementModel**: Analyse les indicateurs techniques classiques
-3. **RiskManagementModel**: Évalue le risque de chaque transaction potentielle
-4. **TpSlManagementModel**: Détermine les niveaux optimaux de take-profit et stop-loss
-5. **RLTradingModel**: Agent d'apprentissage par renforcement pour les décisions de trading
-6. **SentimentAnalyzer**: Analyse le sentiment du marché à partir des news et médias sociaux
+Fichiers principaux: `app/trading.py`, `app/market_analysis_scheduler.py`, `app/daily_analysis_bot.py`
 
 ### Service de Validation IA
 
-Un service IA secondaire qui:
-- Valide les décisions de trading du bot principal
-- Vérifie si la transaction s'aligne avec les tendances du marché sur plusieurs périodes
-- S'assure que les niveaux de risque sont acceptables
-- Fournit des scores de confiance pour les décisions de trading
-- Utilise Claude 3.7 via l'API OpenRouter pour une analyse avancée
+Fournit une validation indépendante des décisions de trading:
+- Analyse les signaux de trading à l'aide de multiples modèles
+- Utilise Claude 3.7 pour une analyse avancée des décisions
+- Génère des scores de confiance et des explications détaillées
+- Intègre l'analyse du sentiment de marché dans les décisions
 
-### Schéma de la Base de Données
+Fichier principal: `app/ai_trade_validator.py`
 
-La base de données PostgreSQL comprend:
-- `trade_history`: Historique de toutes les transactions
-- `trading_signals`: Signaux de trading générés par les modèles
-- `market_data`: Snapshots de données historiques du marché
-- `performance_metrics`: Statistiques quotidiennes de performance de trading
-- `bot_settings`: Paramètres de configuration pour le bot de trading
+### Modèles IA
+
+Le système intègre plusieurs modèles d'IA pour différents aspects du trading:
+
+1. **PricePredictionModel** (`app/models/price_prediction.py`): Utilise des réseaux de neurones LSTM et GRU pour prédire les mouvements de prix
+2. **IndicatorManagementModel** (`app/models/indicator_management.py`): Analyse les indicateurs techniques classiques
+3. **RiskManagementModel** (`app/models/risk_management.py`): Évalue le risque de chaque transaction potentielle
+4. **TpSlManagementModel** (`app/models/tp_sl_management.py`): Détermine les niveaux optimaux de take-profit et stop-loss
+5. **RLTradingModel** (`app/models/rl_trading.py`): Agent d'apprentissage par renforcement pour les décisions de trading
+6. **SentimentAnalyzer** (`app/models/sentiment_analysis.py`): Analyse le sentiment du marché à partir des news et médias sociaux
+7. **TransformerModel** (`app/models/transformer_model.py`): Utilise l'architecture Transformer pour analyse de séquence
+8. **NewsRetrieval** (`app/models/news_retrieval.py`): Système de collecte et analyse des actualités financières
 
 ## 📊 Surveillance et Logs
 
-- **Interface web**: http://localhost:5001/
-- **Logs de trading**: Consultez `logs/trading_bot.log`
-- **Logs de validation IA**: Consultez `logs/ai_validator.log`
-- **Logs des conteneurs**: `make logs` ou `make logs-SERVICE`
-- **Métriques de performance**: Disponibles dans l'interface web et en base de données
+Le système offre plusieurs niveaux de surveillance:
 
-## 📈 Backtesting
+- **Logs Détaillés**: Tous les services génèrent des logs complets dans le répertoire `logs/`
+- **Interface Web**: Métriques et états visualisés en temps réel
+- **Notifications Telegram**: Alertes configurables pour les événements importants
+- **Monitoring Système**: Suivi des performances et de l'état des services via `app/monitoring.py`
 
-Le système inclut des capacités de backtesting complètes pour évaluer les stratégies:
+## 🧪 Backtesting
 
-```bash
-# Utilisation du Makefile
-make shell-trading-bot
-python -c "from app.trading import TradingBot; bot = TradingBot(); bot.run_backtest('data/market_data_cleaned.csv')"
+Le système inclut des fonctionnalités avancées de backtesting:
 
-# Ou directement avec docker compose
-docker compose run trading-bot python -c "from app.trading import TradingBot; bot = TradingBot(); bot.run_backtest('data/market_data_cleaned.csv')"
-```
+- Test des stratégies sur données historiques
+- Évaluation des performances des modèles
+- Optimisation des paramètres de trading
+- Génération de rapports détaillés
 
-Le backtesting génère un rapport détaillé incluant:
-- Return on Investment (ROI) global
-- Sharpe Ratio
-- Maximum Drawdown
-- Win Rate
-- Profit Factor
-- Graphiques de performance
-
-## 📘 Documentation API
-
-Le système expose une API REST pour l'intégration avec d'autres services:
-
-- `/api/v1/trade-history`: Récupérer l'historique des transactions
-- `/api/v1/active-positions`: Consulter les positions ouvertes
-- `/api/v1/performance`: Obtenir les métriques de performance
-- `/api/v1/signals`: Récupérer les signaux de trading récents
-
-Documentation complète de l'API disponible à l'adresse `/api/docs` dans l'interface web.
+Utilisez le module `app/models/backtesting.py` pour ces fonctionnalités.
 
 ## 💻 Développement
 
-Pour le développement local en dehors de Docker:
+Pour contribuer au développement du projet:
 
-```bash
-# Installer les dépendances
-pip install -r requirements.txt
+1. Créez une branche pour votre fonctionnalité
+2. Suivez les conventions de codage du projet
+3. Ajoutez des tests pour vos nouvelles fonctionnalités
+4. Soumettez une pull request
 
-# Exécuter le bot en mode développement
-python run.py
-```
-
-### Tests
-
-```bash
-# Exécuter tous les tests
-python -m pytest tests/
-
-# Exécuter des tests spécifiques
-python -m pytest tests/test_trading.py
-```
-
-## 🤝 Comment Contribuer
-
-Les contributions sont les bienvenues! Veuillez suivre ces étapes:
-
-1. Forker le dépôt
-2. Créer une branche de fonctionnalité (`git checkout -b feature/fonctionnalite-incroyable`)
-3. Validez vos modifications (`git commit -m 'Ajouter une fonctionnalité incroyable'`)
-4. Poussez vers la branche (`git push origin feature/fonctionnalite-incroyable`)
-5. Ouvrez une Pull Request
-
-Veuillez consulter [CONTRIBUTING.md](CONTRIBUTING.md) pour plus de détails sur notre code de conduite et notre processus de soumission de pull requests.
-
-## ❓ FAQ
-
-**Q: Le bot peut-il négocier sur des marchés de crypto-monnaies?**  
-R: Oui, le système prend en charge les actions, les crypto-monnaies et les forex. Configurez les marchés souhaités dans le fichier `.env`.
-
-**Q: Quelles sont les exigences matérielles minimales?**  
-R: 4GB de RAM et 2 cœurs CPU sont le minimum recommandé. 8GB de RAM et 4 cœurs sont optimaux pour l'exécution de tous les modèles.
-
-**Q: Le système peut-il fonctionner sans la validation Claude IA?**  
-R: Oui, définissez `ENABLE_CLAUDE_VALIDATION=false` dans votre fichier `.env`. Le système utilisera alors uniquement les modèles internes.
-
-**Q: Quelle est la fréquence de mise à jour des données?**  
-R: Par défaut, le système actualise les données de marché toutes les 5 minutes, mais c'est configurable via `UPDATE_INTERVAL` dans `.env`.
-
-## 📝 Performances
-
-Les performances varient selon les marchés et la configuration, mais nos tests montrent typiquement:
-
-- ROI annualisé: 15-25% (backtesting)
-- Sharpe Ratio: 1.2-1.8
-- Maximum Drawdown: 10-15%
-- Win Rate: 55-65%
-
-*Note: Les performances passées ne garantissent pas les résultats futurs.*
-
-## 🛣 Feuille de Route
-
-- [ ] Intégration de modèles IA génératifs supplémentaires
-- [ ] Support pour les options et les futures
-- [ ] Application mobile de surveillance
-- [ ] Optimisation automatique des hyperparamètres
-- [ ] Support multi-comptes
-- [ ] Interface d'administration améliorée
-- [ ] Support pour des courtiers supplémentaires
-
-## 📄 Licence
-
-Ce projet est sous licence MIT - voir le fichier [LICENSE](LICENSE) pour plus de détails.
+Consultez [CONTRIBUTING.md](CONTRIBUTING.md) pour plus de détails.
 
 ## 🔒 Sécurité
 
-Si vous découvrez une vulnérabilité de sécurité, veuillez envoyer un e-mail à evil2root@protonmail.com au lieu d'utiliser l'outil de suivi des problèmes. Nous prendrons les mesures nécessaires pour résoudre le problème rapidement.
+Le projet prend la sécurité au sérieux:
 
-Consultez [SECURITY.md](SECURITY.md) pour plus de détails sur notre politique de sécurité.
+- Toutes les communications sont chiffrées
+- Les clés API sont stockées dans des variables d'environnement
+- L'accès à la base de données est limité par conteneur
+
+Consultez [SECURITY.md](SECURITY.md) pour plus d'informations.
 
 ## ⚠️ Avertissement
 
-Ce logiciel est fourni à des fins éducatives uniquement. Le trading comporte des risques inhérents. Les auteurs ne sont pas responsables des pertes financières pouvant résulter de l'utilisation de ce logiciel. Utilisez-le à vos propres risques et consultez toujours un conseiller financier professionnel.
+Ce système est fourni à des fins éducatives et de recherche. Le trading comporte des risques financiers significatifs. Utilisez à vos propres risques.
 
-## 📬 Contact
+## 📞 Contact
 
+Pour toute question ou support, veuillez ouvrir une issue sur le dépôt GitHub ou contacter les mainteneurs via les coordonnées indiquées dans le projet.
 
----
+## 🔄 Fonctionnalités d'analyse avec entraînement préalable des modèles
 
-<p align="center">
-  Développé avec ❤️ par l'équipe EVIL2ROOT
-</p>
+Le système inclut des fonctionnalités d'analyse avancées qui nécessitent un entraînement préalable des modèles:
 
-## Fonctionnalités d'analyse avec entraînement préalable des modèles
+- Analyse quotidienne automatisée des marchés via `start_daily_analysis.py`
+- Entraînement périodique des modèles pour maintenir leur précision
+- Analyse planifiée du marché avec `market_analysis_scheduler.py`
+- Option d'entraînement forcé via `start_docker_force_train.sh`
 
-Le système d'analyse prend désormais en charge l'entraînement obligatoire des modèles avant de commencer les analyses. Cette fonctionnalité garantit que les modèles sont correctement entraînés avant d'envoyer des analyses, ce qui améliore la qualité et la fiabilité des prédictions.
-
-### Utilisation
-
-Vous pouvez utiliser le script `start_train_and_analyze.sh` pour lancer le bot d'analyse avec un entraînement forcé des modèles :
-
-```bash
-./start_train_and_analyze.sh
-```
-
-Alternativement, vous pouvez utiliser l'option `--force-train` avec le script Python directement :
-
-```bash
-python3 start_daily_analysis.py --force-train
-```
-
-### Fonctionnement
-
-Lorsque cette fonctionnalité est activée :
-
-1. Le système vérifie si des modèles existants sont présents dans le répertoire `saved_models`
-2. Si l'option `--force-train` est utilisée, les modèles existants sont ignorés et de nouveaux modèles sont entraînés
-3. Le système envoie une notification via Telegram pour informer que l'entraînement des modèles est en cours
-4. Une fois l'entraînement terminé, les analyses sont générées et envoyées
-
-### Configuration Docker
-
-Pour Docker, vous pouvez également forcer l'entraînement des modèles en définissant la variable d'environnement `FORCE_MODEL_TRAINING=true` dans votre fichier `.env` ou dans la commande Docker :
-
-```bash
-docker-compose run -e FORCE_MODEL_TRAINING=true analysis-bot
-```
+Ces fonctionnalités permettent au système de s'adapter continuellement aux conditions changeantes du marché et d'améliorer ses performances au fil du temps.

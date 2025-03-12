@@ -1,144 +1,269 @@
-# Bot d'Analyse Quotidienne - Guide d'Utilisation Docker
+# Bot d'Analyse de Marché EVIL2ROOT
 
-Ce document explique comment configurer et exécuter le bot d'analyse quotidienne avec Docker.
+Ce document décrit les fonctionnalités et l'utilisation du bot d'analyse de marché intégré au système EVIL2ROOT Trading Bot.
 
-## Présentation
+## Table des matières
 
-Le Bot d'Analyse Quotidienne est un outil qui génère et envoie des analyses financières complètes via Telegram à des moments prédéfinis de la journée (9h00, 12h30, 16h30, 20h00). Ces analyses intègrent :
+- [Aperçu](#aperçu)
+- [Fonctionnalités principales](#fonctionnalités-principales)
+- [Architecture](#architecture)
+- [Configuration](#configuration)
+- [Utilisation](#utilisation)
+  - [Analyse quotidienne](#analyse-quotidienne)
+  - [Analyses planifiées](#analyses-planifiées)
+  - [Entraînement forcé](#entraînement-forcé)
+- [Personnalisation des analyses](#personnalisation-des-analyses)
+- [Rapports d'analyse](#rapports-danalyse)
+- [Intégration avec le trading](#intégration-avec-le-trading)
 
-- Analyse technique (indicateurs, tendances)
-- Analyse fondamentale (données financières)
-- Analyse de sentiment (basée sur les nouvelles)
-- Prédiction de prix (modèles d'IA)
-- Évaluation des risques
-- Actualités pertinentes
+## Aperçu
 
-Toutes ces analyses sont générées avec l'aide de plusieurs modèles d'IA, dont Claude 3.7 via OpenRouter.
+Le bot d'analyse de marché EVIL2ROOT est un composant sophistiqué qui effectue des analyses approfondies des marchés financiers en utilisant une combinaison de techniques d'apprentissage automatique, d'analyse technique traditionnelle et d'analyse de sentiment. Il fournit des rapports détaillés pour aider à la prise de décision de trading, que ce soit pour le trading automatisé ou pour les traders manuels.
 
-## Prérequis
+Le système comprend deux composants d'analyse principaux:
+1. **Daily Analysis Bot** (`app/daily_analysis_bot.py`): Analyse quotidienne approfondie des marchés
+2. **Market Analysis Scheduler** (`app/market_analysis_scheduler.py`): Planificateur d'analyses régulières
 
-- [Docker](https://www.docker.com/get-started) et [Docker Compose](https://docs.docker.com/compose/install/)
-- Un [token de bot Telegram](https://core.telegram.org/bots#how-do-i-create-a-bot)
-- Un [ID de chat Telegram](https://stackoverflow.com/questions/32423837/telegram-bot-how-to-get-a-group-chat-id)
-- Une [clé API OpenRouter](https://openrouter.ai/keys) (pour l'accès à Claude 3.7)
+## Fonctionnalités principales
+
+### Daily Analysis Bot
+
+- Analyse technique complète (indicateurs, patterns, niveaux)
+- Analyse fondamentale basique (métriques clés, nouvelles récentes)
+- Prédictions de prix basées sur des modèles d'apprentissage profond
+- Analyse du sentiment de marché à partir des actualités et médias sociaux
+- Identification des tendances et mouvements potentiels
+- Génération de rapports détaillés au format texte et visuel
+- Recommandations de trading avec niveaux d'entrée/sortie suggérés
+
+### Market Analysis Scheduler
+
+- Planification flexible des analyses à différents intervalles
+- Analyses spécifiques en fonction des fuseaux horaires et sessions de marché
+- Déclenchement automatique d'analyses lors d'événements de marché importants
+- Distribution des rapports via Telegram et interface web
+- Archivage et historique des analyses précédentes
+- Détection d'anomalies et alertes en temps réel
+
+## Architecture
+
+```
+┌─────────────────────────┐
+│                         │
+│  Market Analysis        │
+│  Scheduler              │
+│                         │
+└────────────┬────────────┘
+             │
+             │ Déclenche
+             ▼
+┌─────────────────────────┐
+│                         │
+│  Daily Analysis Bot     │
+│                         │
+└────────────┬────────────┘
+             │
+             │ Utilise
+             ▼
+┌─────────────────────────┐
+│                         │
+│  Modèles d'IA           │
+│  - PricePrediction      │
+│  - SentimentAnalysis    │
+│  - TechnicalIndicators  │
+│  - ...                  │
+│                         │
+└────────────┬────────────┘
+             │
+             │ Produit
+             ▼
+┌─────────────────────────┐
+│                         │
+│  Rapports d'Analyse     │
+│                         │
+└────────────┬────────────┘
+             │
+             │ Distribués via
+             ▼
+┌─────────────┬─────────────┐
+│             │             │
+│  Telegram   │  Web UI     │
+│             │             │
+└─────────────┴─────────────┘
+```
 
 ## Configuration
 
-1. Créez un fichier `.env` à la racine du projet avec les variables suivantes :
+La configuration du bot d'analyse se fait principalement via le fichier `.env`:
 
 ```
-# Configuration de base
-TELEGRAM_TOKEN=votre_token_telegram
-TELEGRAM_CHAT_ID=votre_chat_id
-OPENROUTER_API_KEY=votre_clé_openrouter
+# Analysis Configuration
+ENABLE_DAILY_ANALYSIS=true
+DAILY_ANALYSIS_TIME=00:00  # UTC
+MARKET_ANALYSIS_INTERVAL=60  # minutes
+ANALYSIS_DETAIL_LEVEL=detailed  # basic|detailed|comprehensive
 
-# Symboles à analyser (séparés par des virgules)
-SYMBOLS=AAPL,GOOGL,MSFT,AMZN,TSLA,BTC-USD,ETH-USD
+# Symbols to analyze
+ANALYSIS_SYMBOLS=AAPL,MSFT,GOOGL,AMZN,TSLA,META,NVDA,BTC-USD,ETH-USD
 
-# Configuration du modèle Claude
-CLAUDE_MODEL=anthropic/claude-3.7-sonnet
+# Model Configuration for Analysis
+USE_TRANSFORMER_MODEL=true
+USE_LSTM_MODEL=true
+USE_SENTIMENT_ANALYSIS=true
+USE_NEWS_ANALYSIS=true
 
-# Base de données (pour le stockage des données)
-DB_NAME=trading_db
-DB_USER=trader
-DB_PASSWORD=secure_password
-DB_HOST=db
-DB_PORT=5432
-
-# Redis (pour la mise en cache et la communication entre services)
-REDIS_HOST=redis
-REDIS_PORT=6379
+# Telegram Configuration for Reports
+TELEGRAM_TOKEN=your_telegram_token
+TELEGRAM_CHAT_ID=your_chat_id
 ```
 
-## Démarrage Rapide
+Options avancées dans le fichier `config/analysis_config.json` (si présent) :
 
-Un script utilitaire est fourni pour faciliter le démarrage du bot. Utilisez simplement :
+```json
+{
+  "technical_indicators": {
+    "enable_all": true,
+    "specific_indicators": ["RSI", "MACD", "Bollinger", "Ichimoku", "Fibonacci"]
+  },
+  "chart_patterns": {
+    "enable_detection": true,
+    "confidence_threshold": 0.65
+  },
+  "report_generation": {
+    "include_charts": true,
+    "include_predictions": true,
+    "prediction_timeframes": ["1d", "3d", "7d"],
+    "language": "fr"
+  },
+  "market_events": {
+    "track_economic_calendar": true,
+    "track_earnings": true
+  }
+}
+```
+
+## Utilisation
+
+### Analyse quotidienne
+
+Pour lancer une analyse quotidienne manuellement:
 
 ```bash
-./start_analysis_docker.sh
+python start_daily_analysis.py
 ```
 
-Le script vérifiera que tout est correctement configuré, puis démarrera le bot d'analyse en tant que service Docker.
+Options disponibles:
+- `--force-train`: Force l'entraînement des modèles avant l'analyse
+- `--symbols`: Liste spécifique de symboles à analyser (ex: `--symbols AAPL,MSFT,TSLA`)
+- `--detail`: Niveau de détail de l'analyse (`basic`, `detailed`, `comprehensive`)
+- `--no-telegram`: Désactive l'envoi de rapports via Telegram
+- `--save-only`: Sauvegarde les rapports sans les envoyer
 
-### Options
-
-- `--build` : Reconstruit l'image Docker avant de démarrer le service
-  ```bash
-  ./start_analysis_docker.sh --build
-  ```
-
-## Démarrage Manuel
-
-Si vous préférez utiliser Docker Compose directement :
-
-1. Construisez l'image (uniquement nécessaire la première fois ou après des modifications) :
-   ```bash
-   docker-compose build analysis-bot
-   ```
-
-2. Démarrez le service :
-   ```bash
-   docker-compose up -d analysis-bot
-   ```
-
-3. Consultez les logs :
-   ```bash
-   docker-compose logs -f analysis-bot
-   ```
-
-## Architecture Docker
-
-Le système utilise plusieurs services Docker :
-
-- `analysis-bot` : Le bot d'analyse quotidienne
-- `web` : Interface web du système de trading (facultatif pour le bot d'analyse)
-- `db` : Base de données PostgreSQL pour stocker les données
-- `redis` : Cache Redis pour les performances
-- `prometheus` & `grafana` : Monitoring (facultatif)
-
-## Personnalisation
-
-### Horaires d'analyse
-
-Les horaires d'analyse sont définis dans `app/daily_analysis_bot.py`. Pour les modifier, éditez ce fichier et reconstruisez l'image Docker.
-
-```python
-self.analysis_schedule = [
-    "09:00",  # Analyse pré-marché
-    "12:30",  # Analyse de mi-journée
-    "16:30",  # Analyse de clôture
-    "20:00"   # Analyse récapitulative
-]
+Exemple:
+```bash
+python start_daily_analysis.py --symbols AAPL,TSLA --detail comprehensive --force-train
 ```
 
-### Symboles analysés
+### Analyses planifiées
 
-Les symboles à analyser peuvent être configurés dans le fichier `.env` via la variable `SYMBOLS`.
-
-## Dépannage
-
-### Problèmes courants
-
-1. **Le bot ne se connecte pas à Telegram**
-   - Vérifiez que votre token Telegram est correct
-   - Assurez-vous que le bot a été démarré dans la conversation
-
-2. **Erreurs d'analyse**
-   - Vérifiez les logs Docker pour identifier l'erreur spécifique
-   - Assurez-vous que l'API OpenRouter est correctement configurée
-
-3. **Problèmes de base de données**
-   - Vérifiez que le service PostgreSQL est bien démarré
-   - Vérifiez les identifiants dans le fichier `.env`
-
-### Consultation des logs
+Pour lancer le planificateur d'analyses:
 
 ```bash
-docker-compose logs -f analysis-bot
+./start_market_scheduler.sh
 ```
 
-## Ressources additionnelles
+Le planificateur exécutera les analyses selon les intervalles configurés. Pour arrêter le planificateur:
 
-- [Documentation Telegram Bot API](https://core.telegram.org/bots/api)
-- [Documentation OpenRouter](https://openrouter.ai/docs)
-- [Documentation Docker Compose](https://docs.docker.com/compose/) 
+```bash
+./stop_market_scheduler.sh
+```
+
+### Entraînement forcé
+
+Pour forcer l'entraînement des modèles avant les analyses:
+
+```bash
+python start_daily_analysis.py --force-train
+```
+
+Ou avec Docker:
+```bash
+./start_docker_force_train.sh
+```
+
+## Personnalisation des analyses
+
+Le bot d'analyse peut être personnalisé de plusieurs façons:
+
+1. **Plugins d'analyse** (`app/plugins/`):
+   - Créez des plugins d'analyse personnalisés
+   - Activez/désactivez des plugins spécifiques via l'interface web
+
+2. **Indicateurs techniques**:
+   - Configurez les indicateurs à utiliser dans `config/analysis_config.json`
+   - Ajustez les paramètres des indicateurs existants
+
+3. **Sources de données**:
+   - Configurez des sources de données additionnelles dans `app/models/news_retrieval.py`
+   - Ajoutez des sources de sentiment de marché personnalisées
+
+4. **Format des rapports**:
+   - Personnalisez les templates de rapport dans `app/templates/reports/`
+   - Ajustez le format et le contenu des notifications Telegram
+
+## Rapports d'analyse
+
+Les rapports d'analyse générés incluent:
+
+### 1. Analyse technique
+- Tendances actuelles (court, moyen, long terme)
+- Niveaux de support et résistance clés
+- Indicateurs techniques (RSI, MACD, moyennes mobiles, etc.)
+- Patterns graphiques identifiés (têtes et épaules, triangles, etc.)
+
+### 2. Analyse de prix
+- Prédictions de prix pour différentes périodes
+- Niveaux de volatilité attendus
+- Zones de prix importantes à surveiller
+
+### 3. Analyse fondamentale
+- Événements récents affectant l'actif
+- Données fondamentales clés (pour les actions)
+- Métriques on-chain (pour les crypto-monnaies)
+
+### 4. Analyse de sentiment
+- Sentiment global du marché
+- Analyse des actualités récentes
+- Sentiment des médias sociaux
+- Changements de sentiment notables
+
+### 5. Recommandations
+- Opportunités de trading potentielles
+- Niveaux d'entrée suggérés
+- Niveaux de take-profit et stop-loss recommandés
+- Notation de confiance pour chaque recommandation
+
+## Intégration avec le trading
+
+Le bot d'analyse s'intègre avec le système de trading de plusieurs façons:
+
+1. **Validation des décisions**: Les analyses peuvent être utilisées pour valider les décisions de trading automatiques
+
+2. **Filtrage de marché**: Les conditions de marché identifiées par les analyses peuvent filtrer les actifs à trader
+
+3. **Ajustement des paramètres**: Les résultats d'analyse peuvent ajuster dynamiquement les paramètres de trading
+
+4. **Préparation du trading**: Les analyses nocturnes préparent le système pour la session de trading suivante
+
+Pour configurer l'intégration entre l'analyse et le trading, utilisez les paramètres suivants dans `.env`:
+
+```
+# Integration Configuration
+USE_ANALYSIS_FOR_TRADING=true
+ANALYSIS_CONFIDENCE_THRESHOLD=0.7
+ADJUST_RISK_BASED_ON_ANALYSIS=true
+```
+
+---
+
+Pour plus d'informations sur l'utilisation avancée du bot d'analyse, consultez la documentation complète ou contactez l'équipe de support. 
