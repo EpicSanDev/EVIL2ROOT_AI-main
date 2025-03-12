@@ -211,15 +211,25 @@ class NewsRetriever:
             # Parse le JSON retourné
             if isinstance(content, str):
                 try:
-                    news_data = json.loads(content)
+                    # Clean the content - remove markdown formatting like ```json and ``` if present
+                    cleaned_content = content
+                    if "```json" in cleaned_content:
+                        cleaned_content = cleaned_content.replace("```json", "")
+                    if "```" in cleaned_content:
+                        cleaned_content = cleaned_content.replace("```", "")
+                    # Remove leading/trailing whitespace
+                    cleaned_content = cleaned_content.strip()
+                    
+                    news_data = json.loads(cleaned_content)
                     if isinstance(news_data, dict) and "news" in news_data:
                         news_items = news_data["news"]
                     elif isinstance(news_data, list):
                         news_items = news_data
                     else:
                         news_items = []
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as e:
                     logging.error(f"Erreur de parsing JSON (Sonar): {content}")
+                    logging.error(f"Détails de l'erreur: {str(e)}")
                     return []
             else:
                 news_items = content
@@ -349,12 +359,29 @@ class NewsRetriever:
         per_source = max(5, max_results // 3)
         
         # Récupérer les news des différentes sources
-        claude_news = self.get_news_openrouter(symbol, per_source)
-        sonar_news = self.get_news_perplexity_sonar(symbol, per_source)
-        api_news = self.fetch_financial_news_api(symbol, per_source)
+        try:
+            claude_news = self.get_news_openrouter(symbol, per_source)
+            logging.info(f"Récupéré {len(claude_news)} nouvelles via Claude pour {symbol}")
+        except Exception as e:
+            logging.error(f"Erreur lors de la récupération des nouvelles via Claude: {e}")
+            claude_news = []
+            
+        try:
+            sonar_news = self.get_news_perplexity_sonar(symbol, per_source)
+            logging.info(f"Récupéré {len(sonar_news)} nouvelles via Sonar pour {symbol}")
+        except Exception as e:
+            logging.error(f"Erreur lors de la récupération des nouvelles via Sonar: {e}")
+            sonar_news = []
+            
+        try:
+            api_news = self.fetch_financial_news_api(symbol, per_source)
+            logging.info(f"Récupéré {len(api_news)} nouvelles via API financière pour {symbol}")
+        except Exception as e:
+            logging.error(f"Erreur lors de la récupération des nouvelles via API: {e}")
+            api_news = []
         
         # Combiner les résultats en évitant les doublons (basé sur les titres)
-        combined_news = claude_news.copy()
+        combined_news = claude_news.copy() if claude_news else []
         titles = {news["title"].lower() for news in combined_news}
         
         # Ajouter les news de Sonar
@@ -379,6 +406,19 @@ class NewsRetriever:
         
         # Trier les nouvelles par pertinence_score (de la plus pertinente à la moins pertinente)
         combined_news.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
+        
+        # Si aucune nouvelle n'a été trouvée, créer une entrée générique
+        if not combined_news:
+            logging.warning(f"Aucune nouvelle n'a été trouvée pour {symbol}, création d'une entrée générique")
+            combined_news = [{
+                "title": f"Aucune nouvelle importante récente pour {symbol}",
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "source": "Evil2Root Trading AI",
+                "url": "",
+                "summary": f"Aucune nouvelle significative n'a été trouvée pour {symbol} dans les sources consultées.",
+                "impact": "neutral",
+                "relevance_score": 0.1
+            }]
         
         return combined_news[:max_results]
 
