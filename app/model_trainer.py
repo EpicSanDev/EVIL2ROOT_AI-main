@@ -442,13 +442,9 @@ class ModelTrainer:
         """
         Optimize hyperparameters for take-profit/stop-loss model
         """
-        # Implementation similar to other optimization methods
-        # For brevity, not including the full implementation here
-        # But would follow the same pattern as the price and risk models
-        
         # Placeholder implementation
         model = TpSlManagementModel()
-        model.train(train_data)
+        model.train(train_data, symbol)
         
         # Save model
         model_path = os.path.join(self.models_dir, f"{symbol}_tpsl_model")
@@ -460,12 +456,9 @@ class ModelTrainer:
         """
         Optimize hyperparameters for indicator model
         """
-        # Implementation similar to other optimization methods
-        # For brevity, not including the full implementation here
-        
         # Placeholder implementation
         model = IndicatorManagementModel()
-        model.train(train_data)
+        model.train(train_data, symbol)
         
         # Save model
         model_path = os.path.join(self.models_dir, f"{symbol}_indicator_model")
