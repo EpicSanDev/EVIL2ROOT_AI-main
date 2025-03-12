@@ -12,6 +12,7 @@ threadpoolctl>=3.1.0
 requests>=2.30.0
 psycopg2-binary>=2.9.6
 redis>=4.5.5
+psutil>=5.9.0
 flask>=2.3.2
 flask-sqlalchemy>=3.0.3
 flask-migrate>=4.0.4
