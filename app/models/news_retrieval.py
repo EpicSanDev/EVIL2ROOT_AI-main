@@ -12,10 +12,15 @@ class NewsRetriever:
     """
     
     def __init__(self):
-        self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY", "")
+        # Use os.environ.get instead of os.getenv for consistency with other files
+        self.openrouter_api_key = os.environ.get("OPENROUTER_API_KEY", "")
         
         if not self.openrouter_api_key:
             logging.warning("OPENROUTER_API_KEY non configurée. La récupération des news via OpenRouter et Perplexity Sonar sera désactivée.")
+        else:
+            # Log a portion of the key for debugging (only first 8 chars)
+            key_preview = self.openrouter_api_key[:8] + "..." if len(self.openrouter_api_key) > 8 else "invalid"
+            logging.info(f"OpenRouter API key configured: {key_preview}...")
         
         # Cache pour éviter de multiples requêtes pour les mêmes informations
         self.cache = {}
@@ -46,7 +51,9 @@ class NewsRetriever:
             # Construction de la requête pour OpenRouter
             headers = {
                 "Authorization": f"Bearer {self.openrouter_api_key}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://evil2root.ai/",  # Required by OpenRouter
+                "X-Title": "Evil2Root Trading AI"  # Helps OpenRouter identify your app
             }
             
             # Construction du prompt pour l'API OpenRouter (Claude)
@@ -149,7 +156,9 @@ class NewsRetriever:
             # Construction de la requête pour OpenRouter (avec accès à Perplexity Sonar)
             headers = {
                 "Authorization": f"Bearer {self.openrouter_api_key}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://evil2root.ai/",  # Required by OpenRouter
+                "X-Title": "Evil2Root Trading AI"  # Helps OpenRouter identify your app
             }
             
             # Construction du prompt pour obtenir des informations web actuelles via Sonar

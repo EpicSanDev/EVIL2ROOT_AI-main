@@ -57,12 +57,16 @@ class DailyAnalysisBot:
         self.news_retriever = NewsRetriever()
         
         # Configuration OpenRouter pour Claude 3.7
-        self.openrouter_api_key = os.getenv('OPENROUTER_API_KEY', '')
-        self.claude_model = os.getenv('CLAUDE_MODEL', 'anthropic/claude-3.7-sonnet')
+        self.openrouter_api_key = os.environ.get('OPENROUTER_API_KEY', '')
+        self.claude_model = os.environ.get('CLAUDE_MODEL', 'anthropic/claude-3.7-sonnet')
         
         # Vérification des clés API
         if not self.openrouter_api_key:
             logger.warning("OpenRouter API key not found. AI analysis will be limited.")
+        else:
+            # Log a portion of the key for debugging (only first 8 chars)
+            key_preview = self.openrouter_api_key[:8] + "..." if len(self.openrouter_api_key) > 8 else "invalid"
+            logger.info(f"OpenRouter API key configured: {key_preview}...")
         
         # Horaires d'analyse
         self.analysis_schedule = [
@@ -475,7 +479,9 @@ Formate la réponse avec Markdown pour Telegram (utilise *texte* pour le gras et
             # Faire la requête à OpenRouter pour Claude 3.7
             headers = {
                 "Authorization": f"Bearer {self.openrouter_api_key}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://evil2root.ai/",  # Required by OpenRouter
+                "X-Title": "Evil2Root Trading AI"  # Helps OpenRouter identify your app
             }
             
             data = {
@@ -483,29 +489,42 @@ Formate la réponse avec Markdown pour Telegram (utilise *texte* pour le gras et
                 "messages": [
                     {"role": "user", "content": prompt}
                 ],
-                "temperature": 0.3
+                "temperature": 0.3,
+                "max_tokens": 4096,
+                "stream": False
             }
             
-            response = requests.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers=headers,
-                json=data
-            )
-            
-            if response.status_code != 200:
-                logger.error(f"OpenRouter API error: {response.status_code} - {response.text}")
+            try:
+                logger.info(f"Sending analysis request to OpenRouter for {symbol}")
+                response = requests.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers=headers,
+                    json=data,
+                    timeout=60  # Add timeout to avoid hanging
+                )
+                
+                if response.status_code != 200:
+                    logger.error(f"OpenRouter API error: {response.status_code} - {response.text}")
+                    return self._generate_simplified_analysis(
+                        symbol, market_data, fundamental_data, news, 
+                        price_predictions, sentiment_analysis, risk_assessment
+                    )
+                    
+                logger.info(f"Received successful response from OpenRouter for {symbol}")
+                result = response.json()
+                analysis_text = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                
+                # Ajouter un en-tête avec le symbole et la date/heure
+                header = f"📊 *ANALYSE COMPLÈTE: {symbol}* 📊\n📅 {datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n"
+                
+                return header + analysis_text
+                
+            except Exception as e:
+                logger.error(f"Error generating AI analysis for {symbol}: {e}")
                 return self._generate_simplified_analysis(
                     symbol, market_data, fundamental_data, news, 
                     price_predictions, sentiment_analysis, risk_assessment
                 )
-            
-            result = response.json()
-            analysis_text = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-            
-            # Ajouter un en-tête avec le symbole et la date/heure
-            header = f"📊 *ANALYSE COMPLÈTE: {symbol}* 📊\n📅 {datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n"
-            
-            return header + analysis_text
             
         except Exception as e:
             logger.error(f"Error generating AI analysis for {symbol}: {e}")

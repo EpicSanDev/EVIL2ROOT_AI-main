@@ -236,6 +236,15 @@ class TradingBot:
         # Status
         self.status = 'initialized'
         
+        # Initialize configuration
+        self.config = {
+            'initial_balance': initial_balance,
+            'max_positions': self.max_positions,
+            'risk_percentage': self.risk_percentage,
+            'use_ai_validation': self.use_ai_validation,
+            'enable_transformer': self.enable_transformer
+        }
+        
         # Initialize position manager if not provided
         if self.position_manager is None:
             from app.models.position_manager import PositionManager

@@ -56,6 +56,44 @@ class IndicatorManagementModel:
         predicted_indicator = self.models[symbol].predict(indicators_scaled[-1].reshape(1, -1))
         return predicted_indicator[0]
 
+    def add_technical_indicators(self, data):
+        """
+        Adds technical indicators directly to the provided DataFrame.
+        This method modifies the DataFrame in place.
+        
+        Args:
+            data (pd.DataFrame): DataFrame containing OHLCV data
+        """
+        # Simple Moving Averages
+        data['SMA_20'] = data['Close'].rolling(window=20).mean()
+        data['SMA_50'] = data['Close'].rolling(window=50).mean()
+        
+        # Exponential Moving Averages
+        data['EMA_20'] = data['Close'].ewm(span=20, adjust=False).mean()
+        data['EMA_50'] = data['Close'].ewm(span=50, adjust=False).mean()
+
+        # Relative Strength Index (RSI)
+        delta = data['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        data['RSI_14'] = 100 - (100 / (1 + rs))
+
+        # Bollinger Bands
+        data['BB_upper'] = data['SMA_20'] + (data['Close'].rolling(window=20).std() * 2)
+        data['BB_lower'] = data['SMA_20'] - (data['Close'].rolling(window=20).std() * 2)
+
+        # Moving Average Convergence Divergence (MACD)
+        data['MACD'] = data['EMA_20'] - data['EMA_50']
+        data['Signal_Line'] = data['MACD'].ewm(span=9, adjust=False).mean()
+
+        # Commodity Channel Index (CCI)
+        tp = (data['High'] + data['Low'] + data['Close']) / 3
+        data['CCI'] = (tp - tp.rolling(window=20).mean()) / (0.015 * tp.rolling(window=20).std())
+
+        # Fill NA values
+        data.fillna(0, inplace=True)
+
     def build_model(self):
         # This should be the implementation of the model that fits the LSTM model.
         # Here is a placeholder, assuming an LSTM is used in some cases
