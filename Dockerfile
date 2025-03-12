@@ -26,8 +26,8 @@ RUN --mount=type=cache,target=/root/.cache/pip pip install --no-cache-dir plotly
 
 # Install remaining dependencies excluding Plotly and Dash
 COPY requirements.txt .
-RUN grep -v "plotly\|dash" requirements.txt > requirements-filtered.txt \
-    && --mount=type=cache,target=/root/.cache/pip pip install --no-cache-dir -r requirements-filtered.txt
+RUN grep -v "plotly\|dash" requirements.txt > requirements-filtered.txt
+RUN --mount=type=cache,target=/root/.cache/pip pip install --no-cache-dir -r requirements-filtered.txt
 
 # Ensure prometheus-client is installed
 RUN --mount=type=cache,target=/root/.cache/pip pip install --no-cache-dir prometheus_client>=0.16.0
