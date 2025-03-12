@@ -93,24 +93,78 @@ class ModelTrainer:
         
         trained_models = {}
         
-        for symbol in data_manager.symbols:
-            try:
-                logger.info(f"Training models for {symbol}...")
-                data = data_manager.data.get(symbol)
+        # Vérifier si on doit limiter les symboles pour l'entrainement
+        train_only_essential = os.environ.get('TRAIN_ONLY_ESSENTIAL_SYMBOLS', 'false').lower() == 'true'
+        essential_symbols = os.environ.get('ESSENTIAL_SYMBOLS', '').split(',')
+        
+        # Déterminer les symboles à entraîner
+        symbols_to_train = essential_symbols if train_only_essential else data_manager.symbols
+        logger.info(f"Symbols to train: {symbols_to_train} (out of {len(data_manager.symbols)} available)")
+        
+        # Déterminer si on utilise l'entraînement parallèle
+        enable_parallel = os.environ.get('ENABLE_PARALLEL_TRAINING', 'false').lower() == 'true'
+        max_parallel = int(os.environ.get('MAX_PARALLEL_MODELS', 2))
+        
+        if enable_parallel:
+            logger.info(f"Using parallel training with max {max_parallel} models at once")
+            # Entraînement parallèle avec limitation du nombre de modèles
+            with ThreadPoolExecutor(max_workers=max_parallel) as executor:
+                futures = {}
+                for symbol in symbols_to_train:
+                    if symbol not in data_manager.symbols:
+                        logger.warning(f"Symbol {symbol} not found in data_manager, skipping")
+                        continue
+                        
+                    try:
+                        data = data_manager.data.get(symbol)
+                        
+                        if data is None or data.empty:
+                            logger.warning(f"No data available for {symbol}, skipping training")
+                            continue
+                        
+                        future = executor.submit(self._train_symbol_models_sync, data, symbol)
+                        futures[future] = symbol
+                        
+                    except Exception as e:
+                        logger.error(f"Error preparing training for {symbol}: {e}")
                 
-                if data is None or data.empty:
-                    logger.warning(f"No data available for {symbol}, skipping training")
+                # Collecter les résultats au fur et à mesure qu'ils se terminent
+                for future in concurrent.futures.as_completed(futures):
+                    symbol = futures[future]
+                    try:
+                        symbol_models = future.result()
+                        trained_models[symbol] = symbol_models
+                        logger.info(f"All models for {symbol} completed training")
+                        # Libérer la mémoire après chaque modèle
+                        gc.collect()
+                    except Exception as e:
+                        logger.error(f"Error during parallel training for {symbol}: {e}")
+        else:
+            logger.info("Using sequential training (one model at a time)")
+            # Entraînement séquentiel (un symbole à la fois)
+            for symbol in symbols_to_train:
+                if symbol not in data_manager.symbols:
+                    logger.warning(f"Symbol {symbol} not found in data_manager, skipping")
                     continue
-                
-                # Train symbol-specific models
-                symbol_models = await self.train_symbol_models(data, symbol)
-                trained_models[symbol] = symbol_models
-                
-                # Clean up memory
-                gc.collect()
-                
-            except Exception as e:
-                logger.error(f"Error training models for {symbol}: {e}")
+                    
+                try:
+                    logger.info(f"Training models for {symbol}...")
+                    data = data_manager.data.get(symbol)
+                    
+                    if data is None or data.empty:
+                        logger.warning(f"No data available for {symbol}, skipping training")
+                        continue
+                    
+                    # Train symbol-specific models
+                    symbol_models = await self.train_symbol_models(data, symbol)
+                    trained_models[symbol] = symbol_models
+                    
+                    # Clean up memory
+                    gc.collect()
+                    tf.keras.backend.clear_session()  # Clear TensorFlow session
+                    
+                except Exception as e:
+                    logger.error(f"Error training models for {symbol}: {e}")
         
         # Train global models (if any)
         try:
@@ -130,14 +184,34 @@ class ModelTrainer:
         logger.info("All model training completed")
         return trained_models
     
+    def _train_symbol_models_sync(self, data, symbol):
+        """Version synchrone de train_symbol_models pour l'exécution parallèle"""
+        # Convertir la fonction asynchrone en synchrone
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(self.train_symbol_models(data, symbol))
+            return result
+        finally:
+            loop.close()
+            
     async def train_symbol_models(self, data: pd.DataFrame, symbol: str) -> Dict:
         """
         Train and optimize all models for a specific symbol
         """
         models = {}
         
+        # Limiter la taille des données pour réduire la consommation de mémoire
+        if len(data) > 5000:
+            logger.info(f"Reducing data size for {symbol}: {len(data)} → 5000 data points")
+            data = data.iloc[-5000:]
+            
         # Prepare data
         train_data, test_data = self._prepare_data_splits(data)
+        
+        # Supprimer les données originales pour libérer de la mémoire
+        del data
+        gc.collect()
         
         # 1. Train price prediction model
         logger.info(f"Optimizing price prediction model for {symbol}...")
@@ -145,46 +219,77 @@ class ModelTrainer:
             price_model = await self._optimize_price_model(train_data, test_data, symbol)
             models['price'] = price_model
             logger.info(f"Price prediction model for {symbol} trained successfully")
+            # Libérer la mémoire après chaque modèle
+            gc.collect()
+            tf.keras.backend.clear_session()
         except Exception as e:
             logger.error(f"Error training price prediction model for {symbol}: {e}")
         
-        # 2. Train risk management model
-        logger.info(f"Optimizing risk management model for {symbol}...")
-        try:
-            risk_model = await self._optimize_risk_model(train_data, test_data, symbol)
-            models['risk'] = risk_model
-            logger.info(f"Risk management model for {symbol} trained successfully")
-        except Exception as e:
-            logger.error(f"Error training risk management model for {symbol}: {e}")
+        # Vérifier si on utilise les Transformers
+        use_transformer = os.environ.get('USE_TRANSFORMER_MODEL', 'true').lower() == 'true'
         
-        # 3. Train take profit / stop loss model
-        logger.info(f"Optimizing TP/SL model for {symbol}...")
-        try:
-            tpsl_model = await self._optimize_tpsl_model(train_data, test_data, symbol)
-            models['tpsl'] = tpsl_model
-            logger.info(f"TP/SL model for {symbol} trained successfully")
-        except Exception as e:
-            logger.error(f"Error training TP/SL model for {symbol}: {e}")
-        
-        # 4. Train indicator model
-        logger.info(f"Optimizing indicator model for {symbol}...")
-        try:
-            indicator_model = await self._optimize_indicator_model(train_data, test_data, symbol)
-            models['indicator'] = indicator_model
-            logger.info(f"Indicator model for {symbol} trained successfully")
-        except Exception as e:
-            logger.error(f"Error training indicator model for {symbol}: {e}")
+        # Déterminer si on utilise le modèle de risque
+        model_complexity = os.environ.get('MODEL_COMPLEXITY', 'medium')
+        if model_complexity != 'low':
+            # 2. Train risk management model
+            logger.info(f"Optimizing risk management model for {symbol}...")
+            try:
+                risk_model = await self._optimize_risk_model(train_data, test_data, symbol)
+                models['risk'] = risk_model
+                logger.info(f"Risk management model for {symbol} trained successfully")
+                # Libérer la mémoire après chaque modèle
+                gc.collect()
+                tf.keras.backend.clear_session()
+            except Exception as e:
+                logger.error(f"Error training risk management model for {symbol}: {e}")
+            
+            # 3. Train take profit / stop loss model
+            logger.info(f"Optimizing TP/SL model for {symbol}...")
+            try:
+                tpsl_model = await self._optimize_tpsl_model(train_data, test_data, symbol)
+                models['tpsl'] = tpsl_model
+                logger.info(f"TP/SL model for {symbol} trained successfully")
+                # Libérer la mémoire après chaque modèle
+                gc.collect()
+                tf.keras.backend.clear_session()
+            except Exception as e:
+                logger.error(f"Error training TP/SL model for {symbol}: {e}")
+            
+            # 4. Train indicator model
+            logger.info(f"Optimizing indicator model for {symbol}...")
+            try:
+                indicator_model = await self._optimize_indicator_model(train_data, test_data, symbol)
+                models['indicator'] = indicator_model
+                logger.info(f"Indicator model for {symbol} trained successfully")
+                # Libérer la mémoire après chaque modèle
+                gc.collect()
+                tf.keras.backend.clear_session()
+            except Exception as e:
+                logger.error(f"Error training indicator model for {symbol}: {e}")
         
         # Train transformer model if enabled
-        if self.use_transformer:
-            transformer_model = await self.train_transformer_model(data, symbol)
-            models['transformer'] = transformer_model
-            logger.info(f"Trained transformer model for {symbol}")
+        if use_transformer:
+            logger.info(f"Training transformer model for {symbol}...")
+            try:
+                transformer_model = await self.train_transformer_model(train_data, symbol)
+                models['transformer'] = transformer_model
+                logger.info(f"Transformer model for {symbol} trained successfully")
+                # Libérer la mémoire après chaque modèle
+                gc.collect()
+                tf.keras.backend.clear_session()
+            except Exception as e:
+                logger.error(f"Error training transformer model for {symbol}: {e}")
+        
+        # Libérer la mémoire
+        del train_data, test_data
+        gc.collect()
         
         # Save all model metrics for this symbol
         metrics_file = os.path.join(self.models_dir, f"{symbol}_metrics.json")
         try:
-            pd.DataFrame(self.model_metrics).to_json(metrics_file)
+            # Utiliser to_json au lieu de DataFrame pour éviter de créer un objet volumineux
+            with open(metrics_file, 'w') as f:
+                json.dump(self.model_metrics.get(symbol, {}), f)
             logger.info(f"Model metrics saved to {metrics_file}")
         except Exception as e:
             logger.error(f"Error saving model metrics: {e}")

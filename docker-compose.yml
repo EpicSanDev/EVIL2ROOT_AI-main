@@ -19,6 +19,12 @@ services:
       - db
       - redis
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
 
   analysis-bot:
     build: .
@@ -35,6 +41,12 @@ services:
       - db
       - redis
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
 
   market-scheduler:
     build: .
@@ -51,6 +63,12 @@ services:
       - db
       - redis
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
 
   train-and-analyze:
     build: .
@@ -67,6 +85,12 @@ services:
       - db
       - redis
     restart: no  # Ce service ne redémarre pas automatiquement
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
 
   market-scheduler-force-train:
     build: .
@@ -83,6 +107,12 @@ services:
       - db
       - redis
     restart: no  # Ce service ne redémarre pas automatiquement
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
 
   db:
     image: postgres:13
@@ -96,6 +126,10 @@ services:
     ports:
       - "5432:5432"
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
 
   redis:
     image: redis:6
@@ -105,6 +139,10 @@ services:
     volumes:
       - redis_data:/data
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
 
   adminer:
     image: adminer

@@ -18,6 +18,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import tensorflow as tf
 import traceback
 import inspect
+import gc
 
 class PricePredictionModel:
     def __init__(self, sequence_length=60, future_periods=1, model_dir='models'):
@@ -320,7 +321,7 @@ class PricePredictionModel:
         
         return model
 
-    def _optimize_hyperparameters(self, X_train, y_train, symbol):
+    def _optimize_hyperparameters(self, X_train, y_train, symbol, max_trials=25, timeout=3600):
         """
         Perform real hyperparameter optimization using Bayesian optimization.
         
@@ -328,6 +329,8 @@ class PricePredictionModel:
             X_train: Training features
             y_train: Training targets
             symbol: Trading symbol
+            max_trials: Maximum number of optimization trials
+            timeout: Maximum optimization time in seconds
             
         Returns:
             Dict of best hyperparameters
@@ -372,13 +375,14 @@ class PricePredictionModel:
         search = BayesSearchCV(
             estimator=tf.keras.wrappers.scikit_learn.KerasRegressor(build_fn=create_model_for_bayes),
             search_spaces=param_space,
-            n_iter=10,  # Number of parameter settings sampled
+            n_iter=max_trials,  # Number of parameter settings sampled
             cv=tscv,
             n_jobs=1,  # Run on a single core (increase if more hardware is available)
             verbose=1,
             scoring=custom_scorer,
             return_train_score=True,
-            fit_params={'callbacks': callbacks, 'epochs': 50, 'validation_split': 0.2}
+            fit_params={'callbacks': callbacks, 'epochs': 50, 'validation_split': 0.2},
+            timeout=timeout
         )
         
         # Perform the search
@@ -466,39 +470,80 @@ class PricePredictionModel:
         try:
             self.logger.info(f"Training model for symbol: {symbol}")
             
+            # Limiter la taille des données pour réduire la consommation de mémoire
+            if len(data) > 5000:
+                self.logger.info(f"Réduction de la taille des données: {len(data)} → 5000 points")
+                data = data.iloc[-5000:]
+            
             # Create features
             feature_data = self._prepare_features(data)
             self.logger.info(f"Created {len(feature_data.columns)} features for {symbol}")
             
+            # Libérer la mémoire
+            del data
+            gc.collect()
+            
             # Scale data
             X_scaled, y_scaled = self._scale_data(feature_data, symbol, train_mode=True)
             
+            # Libérer la mémoire
+            del feature_data
+            gc.collect()
+            
+            # Lire la séquence depuis les variables d'environnement
+            seq_length = int(os.environ.get('SEQUENCE_LENGTH', self.sequence_length))
+            
             # Create sequences
-            X_seq, y_seq = self._create_sequences(X_scaled, y_scaled, self.sequence_length, self.future_periods)
+            X_seq, y_seq = self._create_sequences(X_scaled, y_scaled, seq_length, self.future_periods)
             self.logger.info(f"Created {len(X_seq)} sequences for {symbol}")
+            
+            # Libérer la mémoire
+            del X_scaled, y_scaled
+            gc.collect()
             
             # Split data into training and validation sets
             split_idx = int(len(X_seq) * (1 - validation_split))
             X_train, X_val = X_seq[:split_idx], X_seq[split_idx:]
             y_train, y_val = y_seq[:split_idx], y_seq[split_idx:]
             
+            # Libérer la mémoire
+            del X_seq, y_seq
+            gc.collect()
+            
             # Get hyperparameters
             if optimize:
-                best_params = self._optimize_hyperparameters(X_train, y_train, symbol)
+                # Limiter le nombre d'essais depuis les variables d'environnement
+                max_trials = int(os.environ.get('MAX_OPTIMIZATION_TRIALS', 25))
+                optimization_timeout = int(os.environ.get('OPTIMIZATION_TIMEOUT', 3600))
+                
+                self.logger.info(f"Optimizing hyperparameters with max_trials={max_trials}, timeout={optimization_timeout}s")
+                best_params = self._optimize_hyperparameters(X_train, y_train, symbol, 
+                                                           max_trials=max_trials, 
+                                                           timeout=optimization_timeout)
             else:
                 best_params = {
                     'model_type': 'hybrid',
                     'lstm_units': 100,
                     'dropout_rate': 0.3,
                     'learning_rate': 0.001,
-                    'batch_size': 32,
+                    'batch_size': int(os.environ.get('BATCH_SIZE', 32)),
                     'dense_units': 32,
                     'l1': 1e-5,
                     'l2': 1e-5,
                     'loss': 'mean_squared_error'
                 }
             
+            # Ajuster la complexité du modèle en fonction de la variable MODEL_COMPLEXITY
+            model_complexity = os.environ.get('MODEL_COMPLEXITY', 'medium')
+            if model_complexity == 'low':
+                best_params['lstm_units'] = min(best_params.get('lstm_units', 100), 64)
+                best_params['dense_units'] = min(best_params.get('dense_units', 32), 16)
+            elif model_complexity == 'high':
+                # Garder les valeurs optimisées
+                pass
+            
             # Build and train the model
+            self.logger.info(f"Building model with parameters: {best_params}")
             model = self.build_model(best_params, input_shape=(X_train.shape[1], X_train.shape[2]))
             
             # Define callbacks
@@ -509,8 +554,30 @@ class PricePredictionModel:
                 ModelCheckpoint(filepath=model_path, save_best_only=True, monitor='val_loss')
             ]
             
+            # Ajustement des époques en fonction de MODEL_COMPLEXITY
+            if model_complexity == 'low':
+                epochs = min(epochs, 50)
+            elif model_complexity == 'medium':
+                epochs = min(epochs, 100)
+            
             # Train the model
             batch_size = best_params.get('batch_size', 32)
+            self.logger.info(f"Training model for {epochs} epochs with batch_size={batch_size}")
+            
+            # Configurer TensorFlow pour limiter la mémoire GPU si nécessaire
+            use_gpu = os.environ.get('USE_GPU', 'true').lower() == 'true'
+            if use_gpu:
+                gpus = tf.config.list_physical_devices('GPU')
+                if gpus:
+                    # Limiter la mémoire GPU utilisée
+                    for gpu in gpus:
+                        tf.config.experimental.set_memory_growth(gpu, True)
+                    self.logger.info("GPU memory growth set to True")
+            else:
+                # Forcer l'utilisation du CPU
+                os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+                self.logger.info("Forced CPU usage (GPU disabled)")
+            
             history = model.fit(
                 X_train, y_train,
                 validation_data=(X_val, y_val),
@@ -519,6 +586,10 @@ class PricePredictionModel:
                 callbacks=callbacks,
                 verbose=1
             )
+            
+            # Libérer la mémoire
+            del X_train, y_train, X_val, y_val
+            gc.collect()
             
             # Load the best model (saved by ModelCheckpoint)
             if os.path.exists(model_path):
@@ -529,7 +600,7 @@ class PricePredictionModel:
             
             # Save feature column names for prediction
             joblib.dump(
-                list(feature_data.columns),
+                list(feature_data.columns) if 'feature_data' in locals() else [],
                 os.path.join(self.model_dir, f'{symbol}_feature_columns.pkl')
             )
             
@@ -549,16 +620,19 @@ class PricePredictionModel:
                 os.path.join(self.model_dir, f'{symbol}_hyperparams.pkl')
             )
             
-            # Evaluate model
-            self._evaluate_model(model, X_val, y_val, symbol)
+            # Libérer la mémoire associée aux modèles pour éviter les fuites
+            tf.keras.backend.clear_session()
+            gc.collect()
             
-            self.logger.info(f"Model training completed for symbol: {symbol}")
+            self.logger.info(f"Model trained for symbol: {symbol}")
             return history
-            
+
         except Exception as e:
-            self.logger.error(f"Error during training: {str(e)}")
-            traceback.print_exc()
-            return None
+            self.logger.error(f"Error during model training for {symbol}: {str(e)}")
+            # Libérer la mémoire en cas d'erreur
+            tf.keras.backend.clear_session()
+            gc.collect()
+            raise
 
     def _evaluate_model(self, model, X_val, y_val, symbol):
         """
