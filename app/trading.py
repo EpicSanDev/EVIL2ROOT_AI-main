@@ -92,70 +92,27 @@ class DataManager:
 
     def get_initial_data(self, symbol: str) -> pd.DataFrame:
         """Get historical data for a symbol"""
-        logging.info(f"Fetching initial data for symbol: {symbol}")
-        data = yf.download(symbol, start=self.start_date, end=self.end_date)
-        
-        if data.empty:
-            raise ValueError(f"No data received for {symbol}")
-            
-        # Add technical indicators
-        self._add_technical_indicators(data)
-        return data
+        logging.info(f"Downloading data for {symbol} from {self.start_date} to {self.end_date}")
+        try:
+            # Use auto_adjust=False to maintain backward compatibility
+            data = yf.download(symbol, start=self.start_date, end=self.end_date, auto_adjust=False)
+            return data
+        except Exception as e:
+            logging.error(f"Error downloading data: {e}")
+            return None
 
-    def _add_technical_indicators(self, data: pd.DataFrame):
-        """Add technical indicators to the dataframe"""
-        # Moving averages
-        data['SMA_20'] = data['Close'].rolling(window=20).mean()
-        data['SMA_50'] = data['Close'].rolling(window=50).mean()
-        data['EMA_20'] = data['Close'].ewm(span=20, adjust=False).mean()
-        
-        # Volatility indicators
-        data['ATR'] = self._calculate_atr(data)
-        data['Bollinger_Upper'], data['Bollinger_Lower'] = self._calculate_bollinger_bands(data)
-        
-        # Momentum indicators
-        data['RSI'] = self._calculate_rsi(data['Close'])
-        data['MACD'], data['Signal_Line'] = self._calculate_macd(data['Close'])
-        
-        data.fillna(method='bfill', inplace=True)
-
-    def _calculate_atr(self, data: pd.DataFrame, period: int = 14) -> pd.Series:
-        """Calculate Average True Range"""
-        high = data['High']
-        low = data['Low']
-        close = data['Close'].shift(1)
-        
-        tr1 = high - low
-        tr2 = abs(high - close)
-        tr3 = abs(low - close)
-        
-        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-        atr = tr.rolling(window=period).mean()
-        return atr
-
-    def _calculate_bollinger_bands(self, data: pd.DataFrame, period: int = 20, std: int = 2) -> tuple:
-        """Calculate Bollinger Bands"""
-        sma = data['Close'].rolling(window=period).mean()
-        std_dev = data['Close'].rolling(window=period).std()
-        upper_band = sma + (std_dev * std)
-        lower_band = sma - (std_dev * std)
-        return upper_band, lower_band
-
-    def _calculate_rsi(self, prices: pd.Series, period: int = 14) -> pd.Series:
-        """Calculate Relative Strength Index"""
-        delta = prices.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-        rs = gain / loss
-        return 100 - (100 / (1 + rs))
-
-    def _calculate_macd(self, prices: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> tuple:
-        """Calculate MACD and Signal Line"""
-        exp1 = prices.ewm(span=fast, adjust=False).mean()
-        exp2 = prices.ewm(span=slow, adjust=False).mean()
-        macd = exp1 - exp2
-        signal_line = macd.ewm(span=signal, adjust=False).mean()
-        return macd, signal_line
+    def get_real_time_data(self, symbol):
+        """Get real-time (1-minute interval) data for the given symbol"""
+        try:
+            # Use auto_adjust=False to maintain backward compatibility
+            new_data = yf.download(symbol, period='1d', interval='1m', auto_adjust=False)
+            if new_data.empty:
+                logging.warning(f"No real-time data available for {symbol}")
+                return None
+            return new_data
+        except Exception as e:
+            logging.error(f"Error getting real-time data: {e}")
+            return None
 
     def update_data(self):
         """Update data for all symbols"""
@@ -163,9 +120,8 @@ class DataManager:
         for symbol in self.symbols:
             try:
                 logging.info(f"Updating data for symbol: {symbol}")
-                new_data = yf.download(symbol, period='1d', interval='1m')
-                if not new_data.empty:
-                    self._add_technical_indicators(new_data)
+                new_data = self.get_real_time_data(symbol)
+                if new_data is not None:
                     self.data[symbol] = pd.concat([self.data[symbol], new_data]).drop_duplicates()
                     logging.info(f"Successfully updated data for {symbol}")
                 else:

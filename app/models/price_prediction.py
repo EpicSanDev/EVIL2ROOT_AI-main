@@ -16,6 +16,8 @@ import joblib
 import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import tensorflow as tf
+import traceback
+import inspect
 
 class PricePredictionModel:
     def __init__(self, sequence_length=60, future_periods=1, model_dir='models'):
@@ -428,96 +430,107 @@ class PricePredictionModel:
         Returns:
             Training history object
         """
-        self.logger.info(f"Training model for symbol: {symbol}")
+        # Ajout d'un log détaillé
+        caller = inspect.getouterframes(inspect.currentframe())[1]
+        caller_info = f"{caller.filename}:{caller.lineno} in {caller.function}"
+        self.logger.info(f"DÉBUT DE TRAIN pour {symbol} - appelé depuis: {caller_info}")
         
-        # Create features
-        feature_data = self._prepare_features(data)
-        self.logger.info(f"Created {len(feature_data.columns)} features for {symbol}")
-        
-        # Scale data
-        X_scaled, y_scaled = self._scale_data(feature_data, symbol, train_mode=True)
-        
-        # Create sequences
-        X_seq, y_seq = self._create_sequences(X_scaled, y_scaled, self.sequence_length, self.future_periods)
-        self.logger.info(f"Created {len(X_seq)} sequences for {symbol}")
-        
-        # Split data into training and validation sets
-        split_idx = int(len(X_seq) * (1 - validation_split))
-        X_train, X_val = X_seq[:split_idx], X_seq[split_idx:]
-        y_train, y_val = y_seq[:split_idx], y_seq[split_idx:]
-        
-        # Get hyperparameters
-        if optimize:
-            best_params = self._optimize_hyperparameters(X_train, y_train, symbol)
-        else:
-            best_params = {
-                'model_type': 'hybrid',
-                'lstm_units': 100,
-                'dropout_rate': 0.3,
-                'learning_rate': 0.001,
-                'batch_size': 32,
-                'dense_units': 32,
-                'l1': 1e-5,
-                'l2': 1e-5,
-                'loss': 'mean_squared_error'
-            }
-        
-        # Build and train the model
-        model = self.build_model(best_params, input_shape=(X_train.shape[1], X_train.shape[2]))
-        
-        # Define callbacks
-        model_path = os.path.join(self.model_dir, f'{symbol}_model.h5')
-        callbacks = [
-            EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True),
-            ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=10, min_lr=1e-6),
-            ModelCheckpoint(filepath=model_path, save_best_only=True, monitor='val_loss')
-        ]
-        
-        # Train the model
-        batch_size = best_params.get('batch_size', 32)
-        history = model.fit(
-            X_train, y_train,
-            validation_data=(X_val, y_val),
-            epochs=epochs,
-            batch_size=batch_size,
-            callbacks=callbacks,
-            verbose=1
-        )
-        
-        # Load the best model (saved by ModelCheckpoint)
-        if os.path.exists(model_path):
-            model = load_model(model_path)
-        
-        # Store the model
-        self.models[symbol] = model
-        
-        # Save feature column names for prediction
-        joblib.dump(
-            list(feature_data.columns),
-            os.path.join(self.model_dir, f'{symbol}_feature_columns.pkl')
-        )
-        
-        # Save scalers
-        joblib.dump(
-            self.scalers[symbol],
-            os.path.join(self.model_dir, f'{symbol}_target_scaler.pkl')
-        )
-        joblib.dump(
-            self.feature_scalers[symbol],
-            os.path.join(self.model_dir, f'{symbol}_feature_scalers.pkl')
-        )
-        
-        # Save hyperparameters
-        joblib.dump(
-            best_params,
-            os.path.join(self.model_dir, f'{symbol}_hyperparams.pkl')
-        )
-        
-        # Evaluate model
-        self._evaluate_model(model, X_val, y_val, symbol)
-        
-        self.logger.info(f"Model training completed for symbol: {symbol}")
-        return history
+        try:
+            self.logger.info(f"Training model for symbol: {symbol}")
+            
+            # Create features
+            feature_data = self._prepare_features(data)
+            self.logger.info(f"Created {len(feature_data.columns)} features for {symbol}")
+            
+            # Scale data
+            X_scaled, y_scaled = self._scale_data(feature_data, symbol, train_mode=True)
+            
+            # Create sequences
+            X_seq, y_seq = self._create_sequences(X_scaled, y_scaled, self.sequence_length, self.future_periods)
+            self.logger.info(f"Created {len(X_seq)} sequences for {symbol}")
+            
+            # Split data into training and validation sets
+            split_idx = int(len(X_seq) * (1 - validation_split))
+            X_train, X_val = X_seq[:split_idx], X_seq[split_idx:]
+            y_train, y_val = y_seq[:split_idx], y_seq[split_idx:]
+            
+            # Get hyperparameters
+            if optimize:
+                best_params = self._optimize_hyperparameters(X_train, y_train, symbol)
+            else:
+                best_params = {
+                    'model_type': 'hybrid',
+                    'lstm_units': 100,
+                    'dropout_rate': 0.3,
+                    'learning_rate': 0.001,
+                    'batch_size': 32,
+                    'dense_units': 32,
+                    'l1': 1e-5,
+                    'l2': 1e-5,
+                    'loss': 'mean_squared_error'
+                }
+            
+            # Build and train the model
+            model = self.build_model(best_params, input_shape=(X_train.shape[1], X_train.shape[2]))
+            
+            # Define callbacks
+            model_path = os.path.join(self.model_dir, f'{symbol}_model.h5')
+            callbacks = [
+                EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True),
+                ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=10, min_lr=1e-6),
+                ModelCheckpoint(filepath=model_path, save_best_only=True, monitor='val_loss')
+            ]
+            
+            # Train the model
+            batch_size = best_params.get('batch_size', 32)
+            history = model.fit(
+                X_train, y_train,
+                validation_data=(X_val, y_val),
+                epochs=epochs,
+                batch_size=batch_size,
+                callbacks=callbacks,
+                verbose=1
+            )
+            
+            # Load the best model (saved by ModelCheckpoint)
+            if os.path.exists(model_path):
+                model = load_model(model_path)
+            
+            # Store the model
+            self.models[symbol] = model
+            
+            # Save feature column names for prediction
+            joblib.dump(
+                list(feature_data.columns),
+                os.path.join(self.model_dir, f'{symbol}_feature_columns.pkl')
+            )
+            
+            # Save scalers
+            joblib.dump(
+                self.scalers[symbol],
+                os.path.join(self.model_dir, f'{symbol}_target_scaler.pkl')
+            )
+            joblib.dump(
+                self.feature_scalers[symbol],
+                os.path.join(self.model_dir, f'{symbol}_feature_scalers.pkl')
+            )
+            
+            # Save hyperparameters
+            joblib.dump(
+                best_params,
+                os.path.join(self.model_dir, f'{symbol}_hyperparams.pkl')
+            )
+            
+            # Evaluate model
+            self._evaluate_model(model, X_val, y_val, symbol)
+            
+            self.logger.info(f"Model training completed for symbol: {symbol}")
+            return history
+            
+        except Exception as e:
+            self.logger.error(f"Error during training: {str(e)}")
+            traceback.print_exc()
+            return None
 
     def _evaluate_model(self, model, X_val, y_val, symbol):
         """

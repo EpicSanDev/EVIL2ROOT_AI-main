@@ -142,7 +142,8 @@ class TradingSystem:
                 data = yf.download(
                     Config.get_all_symbols(),
                     start=Config.START_DATE,
-                    end=datetime.now().strftime('%Y-%m-%d')
+                    end=datetime.now().strftime('%Y-%m-%d'),
+                    auto_adjust=False
                 )
                 data.to_csv(str(Config.MARKET_DATA))
                 logger.info("Market data downloaded successfully")

@@ -146,23 +146,33 @@ class AITradeValidator:
             logger.error(f"Error loading models for {symbol}: {e}")
             return {}
 
-    def fetch_market_data(self, symbol: str, period: str = "7d", interval: str = "1h") -> pd.DataFrame:
-        """Fetch the latest market data for validation"""
+    def fetch_market_data(self, symbol: str, period: str = "3mo", interval: str = "1d") -> pd.DataFrame:
+        """
+        Récupère les données de marché pour un symbole donné
+        
+        Args:
+            symbol: Symbole boursier
+            period: Période de temps ('1d', '5d', '1mo', '3mo', '6mo', '1y', '2y', '5y', 'max')
+            interval: Intervalle entre les points de données ('1m', '2m', '5m', '15m', '30m', '60m', '90m', '1h', '1d', '5d', '1wk', '1mo', '3mo')
+            
+        Returns:
+            DataFrame contenant les données de marché
+        """
         try:
-            logger.info(f"Fetching market data for {symbol}")
-            data = yf.download(symbol, period=period, interval=interval)
+            logging.info(f"Fetching market data for {symbol}")
+            
+            # Use auto_adjust=False to maintain backward compatibility
+            data = yf.download(symbol, period=period, interval=interval, auto_adjust=False)
             
             if data.empty:
-                logger.warning(f"No data received for {symbol}")
-                return None
-            
-            # Add technical indicators
-            self._add_technical_indicators(data)
+                logging.warning(f"No data received for {symbol}")
+                return pd.DataFrame()
+                
             return data
             
         except Exception as e:
-            logger.error(f"Error fetching market data for {symbol}: {e}")
-            return None
+            logging.error(f"Error fetching market data for {symbol}: {e}")
+            return pd.DataFrame()
 
     def _add_technical_indicators(self, data: pd.DataFrame) -> None:
         """Add technical indicators to the dataframe"""

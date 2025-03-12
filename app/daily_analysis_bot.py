@@ -187,7 +187,8 @@ class DailyAnalysisBot:
             else:
                 # Entraîner un nouveau modèle
                 logger.info(f"Training new price model for {symbol}")
-                self.price_prediction_models[symbol].train(market_data, symbol)
+                # Use named parameters to ensure proper parameter passing
+                self.price_prediction_models[symbol].train(data=market_data, symbol=symbol)
                 
                 # Sauvegarder le modèle
                 pathlib.Path(self.models_dir).mkdir(exist_ok=True)
@@ -384,12 +385,13 @@ class DailyAnalysisBot:
             logger.info(f"Fetching market data for {symbol}")
             
             # Force to download data for a list even with a single symbol to ensure proper DataFrame creation
-            data = yf.download([symbol], period=period, interval=interval, progress=False)
+            # Explicitly set auto_adjust to False to maintain backward compatibility
+            data = yf.download([symbol], period=period, interval=interval, progress=False, auto_adjust=False)
             
             if data.empty:
                 logger.warning(f"No data received for {symbol} using period={period}. Attempting with maximum period...")
                 # Try again with max period as fallback
-                data = yf.download([symbol], period="max", interval=interval, progress=False)
+                data = yf.download([symbol], period="max", interval=interval, progress=False, auto_adjust=False)
                 
                 if data.empty:
                     raise ValueError(f"No data received for {symbol} even with maximum period")
@@ -1009,7 +1011,8 @@ Formate la réponse avec Markdown pour Telegram (utilise *texte* pour le gras et
                 # Vérifier si le modèle a déjà été entraîné
                 model = self.price_prediction_models[symbol]
                 try:
-                    model.train(market_data, symbol)
+                    # Ensure we explicitly pass the symbol parameter
+                    model.train(data=market_data, symbol=symbol)
                     next_day_prediction = model.predict(market_data, symbol)
                     predictions['next_day'] = next_day_prediction
                 except Exception as e:
