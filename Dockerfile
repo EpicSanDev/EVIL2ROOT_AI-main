@@ -49,11 +49,17 @@ RUN mkdir -p data logs saved_models
 ENV FLASK_APP=run.py
 ENV FLASK_ENV=production
 
+# Make scripts executable
+RUN chmod +x start_daily_analysis.py \
+    && chmod +x docker-entrypoint.sh \
+    && chmod +x start_market_scheduler.sh \
+    && chmod +x stop_market_scheduler.sh
+
 # Expose port
 EXPOSE 5000
 
-# Make start script executable
-RUN chmod +x start_daily_analysis.py
+# Set entrypoint
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 
-# Default command
+# Default command (will be passed to entrypoint)
 CMD ["gunicorn", "--bind", "0.0.0.0:5000", "run:app"] 
