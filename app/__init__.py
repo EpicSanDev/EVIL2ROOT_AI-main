@@ -3,6 +3,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 from flask import Flask
 from dotenv import load_dotenv
+from flask_login import LoginManager
 
 # Load environment variables
 load_dotenv()
@@ -17,6 +18,27 @@ from app.api import register_api_routes
 trading_bot = None
 data_manager = None
 position_manager = None
+login_manager = LoginManager()
+
+# Simple user class for Flask-Login
+class User:
+    def __init__(self, id, username):
+        self.id = id
+        self.username = username
+        self.is_authenticated = True
+        self.is_active = True
+        self.is_anonymous = False
+    
+    def get_id(self):
+        return str(self.id)
+
+# User loader for Flask-Login
+@login_manager.user_loader
+def load_user(user_id):
+    # In this simplified version, we just check if it's the admin user
+    if user_id == '1':  # Admin user ID
+        return User(1, os.environ.get('ADMIN_USERNAME', 'admin'))
+    return None
 
 def create_app(testing=False):
     """Create and configure the Flask application."""
@@ -26,6 +48,12 @@ def create_app(testing=False):
     # Set up configuration
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev_key')
     app.config['DATABASE_URI'] = os.environ.get('DATABASE_URI', 'sqlite:///trading.db')
+    
+    # Initialize Flask-Login
+    login_manager.init_app(app)
+    login_manager.login_view = 'main.login'
+    login_manager.login_message = 'Please log in to access this page.'
+    login_manager.login_message_category = 'warning'
     
     # Initialize global objects if not in testing mode
     if not testing:

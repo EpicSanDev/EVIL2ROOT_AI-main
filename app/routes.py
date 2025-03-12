@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, jsonify, request, redirect, url_for, flash
+from flask import Blueprint, render_template, jsonify, request, redirect, url_for, flash, session
 import psutil
 import plotly.graph_objs as go
 import plotly.io as pio
@@ -15,7 +15,9 @@ import psycopg2
 import logging
 from app.plugins import plugin_manager
 import tempfile
-from flask_login import login_required
+from flask_login import login_required, login_user, logout_user, current_user
+from app import User
+from werkzeug.security import check_password_hash
 
 # Configuration des templates Plotly pour optimiser le temps de rendu
 # Utiliser des templates minimalistes pour réduire le temps de génération
@@ -31,6 +33,45 @@ main_blueprint = Blueprint('main', __name__)
 
 # Initialize model trainer with global trading_bot
 model_trainer = ModelTrainer(trading_bot)
+
+# Authentication routes
+@main_blueprint.route('/login', methods=['GET', 'POST'])
+def login():
+    # If user is already authenticated, redirect to dashboard
+    if current_user.is_authenticated:
+        return redirect(url_for('main.dashboard'))
+    
+    # Handle login form submission
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        # Get admin credentials from environment variables
+        admin_username = os.environ.get('ADMIN_USERNAME', 'admin')
+        admin_password = os.environ.get('ADMIN_PASSWORD', 'password')
+        
+        # Simple authentication check
+        if username == admin_username and password == admin_password:
+            # Create user object and log them in
+            user = User(1, admin_username)
+            login_user(user, remember=True)
+            
+            # Redirect to the requested page or dashboard
+            next_page = request.args.get('next')
+            if next_page and next_page.startswith('/'):
+                return redirect(next_page)
+            return redirect(url_for('main.dashboard'))
+        else:
+            flash('Invalid username or password', 'error')
+    
+    return render_template('login.html')
+
+@main_blueprint.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    flash('You have been logged out successfully', 'success')
+    return redirect(url_for('main.login'))
 
 @main_blueprint.route('/')
 def dashboard():
@@ -209,9 +250,10 @@ def performance():
         return redirect(url_for('main.dashboard'))
 
 @main_blueprint.route('/settings', methods=['GET', 'POST'])
+@login_required
 def settings():
     # Charger les variables d'environnement actuelles
-    load_dotenv()
+    dotenv_path = os.path.join(os.getcwd(), '.env')
     
     # Récupérer les paramètres actuels
     current_settings = {

@@ -3,26 +3,119 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="EVIL2ROOT AI-Powered Trading Dashboard">
     <title>EVIL2ROOT Trading Bot Dashboard</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/favicon.svg') }}">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    
+    <!-- Plotly.js -->
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-    <script src="{{ url_for('static', filename='js/scripts.js') }}"></script>
+    
+    <!-- App Scripts -->
+    <script src="{{ url_for('static', filename='js/scripts.js') }}" defer></script>
 </head>
+
 <body>
-    <div class="container">
-        <div class="nav-links">
-            <a href="/" class="{{ 'active' if request.path == '/' else '' }}">Dashboard</a>
-            <a href="/performance" class="{{ 'active' if request.path == '/performance' else '' }}">Performance</a>
-            <a href="/plugins" class="{{ 'active' if request.path == '/plugins' else '' }}">Plugins</a>
-            <a href="/settings" class="{{ 'active' if request.path == '/settings' else '' }}">Settings</a>
-        </div>
+    <div class="app-container">
+        <header>
+            <div class="container">
+                <div class="logo">
+                    <span class="logo-text">EVIL2ROOT</span>
+                    <span class="logo-badge">AI-TRADING</span>
+                </div>
+                
+                <nav class="nav-links">
+                    <a href="/" class="{{ 'active' if request.path == '/' else '' }}">
+                        <i class="fas fa-chart-line"></i> Dashboard
+                    </a>
+                    <a href="/advanced" class="{{ 'active' if request.path == '/advanced' else '' }}">
+                        <i class="fas fa-chart-pie"></i> Advanced
+                    </a>
+                    <a href="/performance" class="{{ 'active' if request.path == '/performance' else '' }}">
+                        <i class="fas fa-chart-bar"></i> Performance
+                    </a>
+                    <a href="/plugins" class="{{ 'active' if request.path == '/plugins' else '' }}">
+                        <i class="fas fa-puzzle-piece"></i> Plugins
+                    </a>
+                    <a href="/settings" class="{{ 'active' if request.path == '/settings' else '' }}">
+                        <i class="fas fa-cog"></i> Settings
+                    </a>
+                </nav>
+            </div>
+        </header>
         
-        {% block content %}{% endblock %}
+        <main class="main-content">
+            <div class="container">
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert {{ category }}">
+                                {{ message }}
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+                
+                {% block content %}{% endblock %}
+            </div>
+        </main>
+        
+        <footer>
+            <div class="container">
+                <div class="footer-content">
+                    <div class="footer-info">
+                        <p>&copy; 2023-2024 EVIL2ROOT Trading Bot - Made with AI-Powered Trading Technology</p>
+                    </div>
+                    <div class="footer-links">
+                        <a href="https://github.com/evil2root" target="_blank"><i class="fab fa-github"></i></a>
+                        <a href="#" target="_blank"><i class="fab fa-twitter"></i></a>
+                        <a href="#" target="_blank"><i class="fab fa-linkedin"></i></a>
+                    </div>
+                </div>
+            </div>
+        </footer>
     </div>
-    <footer>
-        <div class="container">
-            <p>&copy; 2023 EVIL2ROOT Trading Bot - Made with AI-Powered Trading Technology</p>
-        </div>
-    </footer>
+    
+    <!-- Notification container for dynamic notifications -->
+    <div id="notification-container"></div>
+    
+    <script>
+        // Function to show a notification
+        function showNotification(message, type = 'success') {
+            const notificationContainer = document.getElementById('notification-container');
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            
+            const icon = type === 'success' 
+                ? '<i class="fas fa-check-circle"></i>' 
+                : '<i class="fas fa-exclamation-circle"></i>';
+                
+            notification.innerHTML = `${icon} <span>${message}</span>`;
+            
+            notificationContainer.appendChild(notification);
+            
+            // Remove the notification after 4 seconds
+            setTimeout(function() {
+                notification.classList.add('fade-out');
+                setTimeout(function() {
+                    if (notification.parentNode === notificationContainer) {
+                        notificationContainer.removeChild(notification);
+                    }
+                }, 500);
+            }, 4000);
+        }
+    </script>
 </body>
 </html>
