@@ -27,7 +27,7 @@ class PricePredictionModel:
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
     
-    def train(self, data, symbol=None, optimize=True, epochs=100, validation_split=0.2):
+    def train(self, data=None, symbol=None, optimize=True, epochs=100, validation_split=0.2, **kwargs):
         """
         Simulation de l'entraînement du modèle
         
@@ -37,11 +37,27 @@ class PricePredictionModel:
             optimize: Whether to optimize hyperparameters
             epochs: Number of training epochs if not optimizing
             validation_split: Validation data fraction
+            **kwargs: Additional arguments that might be passed
             
         Returns:
             Training history object
         """
         import inspect
+        
+        # Handle various parameter combinations, including keyword arguments
+        # Extensive parameter handling to avoid the missing symbol issue
+        if data is None and 'data' in kwargs:
+            data = kwargs.get('data')
+        if data is None and 'market_data' in kwargs:
+            data = kwargs.get('market_data')
+            
+        if symbol is None and 'symbol' in kwargs:
+            symbol = kwargs.get('symbol')
+            
+        # More parameters that might be in kwargs
+        optimize = kwargs.get('optimize', optimize)
+        epochs = kwargs.get('epochs', epochs)
+        validation_split = kwargs.get('validation_split', validation_split)
         
         # Log who called us
         caller = inspect.getouterframes(inspect.currentframe())[1]

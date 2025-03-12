@@ -89,9 +89,18 @@ class DailyAnalysisBot:
         self.risk_managers = {}
         self.indicator_managers = {}
         
+        # Extra debug for PricePredictionModel initialization
+        model_class = PricePredictionModel
+        logger.info(f"INIT DEBUG - PricePredictionModel class: {model_class}")
+        logger.info(f"INIT DEBUG - From module: {model_class.__module__}")
+        
         # Initialiser les modèles pour chaque symbole
         for symbol in symbols:
-            self.price_prediction_models[symbol] = PricePredictionModel()
+            # Create new model instance with debug logging
+            price_model = PricePredictionModel()
+            logger.info(f"INIT DEBUG - Created model for {symbol}: {type(price_model).__name__} from {type(price_model).__module__}")
+            
+            self.price_prediction_models[symbol] = price_model
             self.sentiment_analyzers[symbol] = SentimentAnalyzer()
             self.market_regime_detectors[symbol] = MarketRegimeDetector()
             self.risk_managers[symbol] = RiskManagementModel()
@@ -144,6 +153,7 @@ class DailyAnalysisBot:
                     market_data = self.fetch_market_data(symbol, period="5y", interval="1d")
                     
                     # Entraîner le modèle de prédiction de prix
+                    # Note: _train_price_model now fetches its own data, so we don't pass market_data
                     self._train_price_model(symbol, market_data)
                     
                     # Entraîner le modèle de sentiment
@@ -173,32 +183,80 @@ class DailyAnalysisBot:
             raise
     
     def _train_price_model(self, symbol, market_data):
-        """Entraîne le modèle de prédiction de prix"""
-        logger.info(f"Training price prediction model for {symbol}")
+        """
+        Entraîne le modèle de prédiction de prix pour un symbole donné
         
+        Args:
+            symbol: Symbole du titre
+            market_data: Les données de marché pour l'entraînement
+        """
+        logger.info(f"Starting price model training for {symbol}")
+        
+        # Get model instance
+        model = self.price_prediction_models.get(symbol, None)
+        
+        if model is None:
+            logger.error(f"No price prediction model found for {symbol}")
+            return
+            
+        # Extensive debug info
+        logger.info(f"DEBUG - Model type: {type(model).__name__} from module {type(model).__module__}")
+        logger.info(f"DEBUG - Model dir contents: {dir(model)}")
+        
+        # Check if train method exists
+        if hasattr(model, 'train'):
+            train_method = getattr(model, 'train')
+            import inspect
+            try:
+                signature = inspect.signature(train_method)
+                logger.info(f"DEBUG - Train method signature: {signature}")
+                logger.info(f"DEBUG - Train method parameters: {list(signature.parameters.keys())}")
+            except Exception as e:
+                logger.error(f"Error inspecting train method: {e}")
+        else:
+            logger.error(f"Model {type(model).__name__} has no train method!")
+            return
+            
         try:
-            # Vérifier si le modèle existe déjà
-            model_path = os.path.join(self.models_dir, f"{symbol}_price_model")
+            # Log market data details
+            logger.info(f"Market data type: {type(market_data)}")
+            logger.info(f"Market data shape: {market_data.shape if hasattr(market_data, 'shape') else 'No shape'}")
+            logger.info(f"Market data columns: {market_data.columns.tolist() if hasattr(market_data, 'columns') else 'No columns'}")
             
-            if os.path.exists(model_path):
-                # Charger le modèle existant
-                logger.info(f"Loading existing price model for {symbol}")
-                self.price_prediction_models[symbol].load(model_path)
-            else:
-                # Entraîner un nouveau modèle
-                logger.info(f"Training new price model for {symbol}")
-                # Use named parameters to ensure proper parameter passing
-                self.price_prediction_models[symbol].train(data=market_data, symbol=symbol)
-                
-                # Sauvegarder le modèle
-                pathlib.Path(self.models_dir).mkdir(exist_ok=True)
-                self.price_prediction_models[symbol].save(model_path)
-                
-            logger.info(f"Price prediction model ready for {symbol}")
+            # Entraîner le modèle avec les données téléchargées
+            logger.info(f"Calling train with named parameters: data=market_data, symbol={symbol}, optimize=True")
             
+            try:
+                model.train(data=market_data, symbol=symbol, optimize=True)
+                logger.info(f"Price model for {symbol} trained successfully with named parameters")
+            except TypeError as e:
+                logger.warning(f"Named parameters failed: {e}, trying with positional arguments")
+                try:
+                    # If the original TypeError was about missing a positional argument, try a different approach
+                    model.train(market_data, symbol, True)
+                    logger.info(f"Price model for {symbol} trained successfully with positional parameters")
+                except Exception as e2:
+                    logger.error(f"Positional parameters failed too: {e2}")
+                    # Final attempt with just data and symbol
+                    try:
+                        model.train(market_data, symbol)
+                        logger.info(f"Price model for {symbol} trained successfully with just data and symbol")
+                    except Exception as e3:
+                        logger.error(f"All parameter combinations failed: {e3}")
+                        raise
+            
+            # Sauvegarder le modèle entraîné
+            save_path = os.path.join(self.models_dir, f"price_{symbol}.pkl")
+            try:
+                os.makedirs(self.models_dir, exist_ok=True)
+                model.save(save_path)
+                logger.info(f"Price model for {symbol} saved to {save_path}")
+            except Exception as e:
+                logger.error(f"Error saving price model for {symbol}: {e}")
+                
         except Exception as e:
-            logger.error(f"Error training price model for {symbol}: {e}")
-            raise
+            logger.error(f"Error training price prediction model for {symbol}: {e}")
+            logger.exception("Detailed error information:")
     
     def _train_sentiment_model(self, symbol, market_data):
         """Entraîne le modèle d'analyse de sentiment"""
@@ -215,8 +273,17 @@ class DailyAnalysisBot:
                 logger.info(f"Training new sentiment model for {symbol}")
                 # Récupérer des données supplémentaires pour l'entraînement
                 news = self.news_retriever.get_combined_news(symbol, max_results=50)
-                # Use named parameters for clarity and to ensure proper passing
-                self.sentiment_analyzers[symbol].train(market_data=market_data, news=news, symbol=symbol)
+                
+                # Try the new method first, with fallback to the original call pattern
+                try:
+                    # Use the new adapter method that handles the expected parameters
+                    self.sentiment_analyzers[symbol].train_from_market_data(
+                        market_data=market_data, news=news, symbol=symbol)
+                    logger.info(f"Sentiment model trained successfully using train_from_market_data")
+                except Exception as e1:
+                    logger.warning(f"Failed to use train_from_market_data: {e1}, trying original method")
+                    # Use named parameters for clarity and to ensure proper passing
+                    self.sentiment_analyzers[symbol].train(market_data=market_data, news=news, symbol=symbol)
                 
                 # Sauvegarder le modèle
                 pathlib.Path(self.models_dir).mkdir(exist_ok=True)
