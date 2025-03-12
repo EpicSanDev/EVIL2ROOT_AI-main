@@ -860,4 +860,202 @@ class RegressionCalibrator:
         self.confidence_level = data['confidence_level']
         
         logger.info(f"Loaded regression calibration models from {filename}")
-        return True 
+        return True
+
+
+class ProbabilityCalibration:
+    """
+    Interface unifiée pour la calibration des probabilités dans le système de trading.
+    
+    Cette classe encapsule les calibrateurs de probabilité pour les modèles de classification
+    et de régression, fournissant une interface simplifiée pour l'intégration avec le système
+    de trading.
+    """
+    
+    def __init__(self, 
+                 classification_method='ensemble',
+                 regression_method='conformal',
+                 confidence_level=0.95,
+                 models_dir='saved_models/calibration'):
+        """
+        Initialiser le système de calibration de probabilité.
+        
+        Args:
+            classification_method: Méthode de calibration pour les modèles de classification
+            regression_method: Méthode de calibration pour les modèles de régression
+            confidence_level: Niveau de confiance pour les intervalles de prédiction
+            models_dir: Répertoire pour sauvegarder les modèles de calibration
+        """
+        self.classification_calibrator = ProbabilityCalibrator(
+            method=classification_method,
+            models_dir=os.path.join(models_dir, 'classification')
+        )
+        
+        self.regression_calibrator = RegressionCalibrator(
+            method=regression_method,
+            confidence_level=confidence_level,
+            models_dir=os.path.join(models_dir, 'regression')
+        )
+        
+        self.models_dir = models_dir
+        self.calibration_stats = {}
+        
+        # Créer les répertoires si nécessaire
+        os.makedirs(os.path.join(models_dir, 'classification'), exist_ok=True)
+        os.makedirs(os.path.join(models_dir, 'regression'), exist_ok=True)
+        
+        logger.info(f"Initialized ProbabilityCalibration with classification method: {classification_method}, "
+                   f"regression method: {regression_method}, confidence level: {confidence_level}")
+    
+    def fit_classification(self, symbol, predictions, true_values, bins=15):
+        """
+        Ajuster le calibrateur de classification pour un symbole spécifique.
+        
+        Args:
+            symbol: Symbole de trading
+            predictions: Prédictions brutes du modèle (probabilités ou scores)
+            true_values: Valeurs réelles (0/1 pour la classification)
+            bins: Nombre de bins pour la calibration Beta et les diagnostics
+            
+        Returns:
+            Métriques de calibration
+        """
+        metrics = self.classification_calibrator.fit(symbol, predictions, true_values, bins)
+        
+        if symbol not in self.calibration_stats:
+            self.calibration_stats[symbol] = {}
+        
+        self.calibration_stats[symbol]['classification'] = {
+            'last_update': pd.Timestamp.now(),
+            'metrics': metrics,
+            'n_samples': len(predictions)
+        }
+        
+        return metrics
+    
+    def fit_regression(self, symbol, predictions, true_values):
+        """
+        Ajuster le calibrateur de régression pour un symbole spécifique.
+        
+        Args:
+            symbol: Symbole de trading
+            predictions: Prédictions brutes du modèle (valeurs continues)
+            true_values: Valeurs réelles (valeurs continues)
+            
+        Returns:
+            Métriques de calibration
+        """
+        metrics = self.regression_calibrator.fit(symbol, predictions, true_values)
+        
+        if symbol not in self.calibration_stats:
+            self.calibration_stats[symbol] = {}
+        
+        self.calibration_stats[symbol]['regression'] = {
+            'last_update': pd.Timestamp.now(),
+            'metrics': metrics,
+            'n_samples': len(predictions)
+        }
+        
+        return metrics
+    
+    def calibrate_classification(self, symbol, predictions):
+        """
+        Calibrer les probabilités de classification pour un symbole spécifique.
+        
+        Args:
+            symbol: Symbole de trading
+            predictions: Prédictions brutes du modèle à calibrer
+            
+        Returns:
+            Probabilités calibrées
+        """
+        return self.classification_calibrator.calibrate(symbol, predictions)
+    
+    def calibrate_regression(self, symbol, predictions):
+        """
+        Calibrer les prédictions de régression pour un symbole spécifique.
+        
+        Args:
+            symbol: Symbole de trading
+            predictions: Prédictions brutes du modèle à calibrer
+            
+        Returns:
+            Dictionnaire contenant les prédictions calibrées et les intervalles de confiance
+        """
+        return self.regression_calibrator.calibrate(symbol, predictions)
+    
+    def plot_calibration_curves(self, symbol, save_dir=None):
+        """
+        Générer et sauvegarder les courbes de calibration pour un symbole spécifique.
+        
+        Args:
+            symbol: Symbole de trading
+            save_dir: Répertoire pour sauvegarder les graphiques (utilise models_dir/plots si None)
+            
+        Returns:
+            Dictionnaire des chemins des fichiers de graphiques générés
+        """
+        if save_dir is None:
+            save_dir = os.path.join(self.models_dir, 'plots')
+        
+        os.makedirs(save_dir, exist_ok=True)
+        
+        plot_paths = {}
+        
+        # Générer la courbe de calibration de classification
+        if symbol in self.classification_calibrator.calibrators:
+            classification_plot_path = os.path.join(save_dir, f'{symbol}_classification_calibration.png')
+            self.classification_calibrator.plot_calibration_curve(symbol, save_path=classification_plot_path)
+            plot_paths['classification'] = classification_plot_path
+        
+        # Générer la courbe de calibration de régression
+        if symbol in self.regression_calibrator.calibrators:
+            regression_plot_path = os.path.join(save_dir, f'{symbol}_regression_calibration.png')
+            self.regression_calibrator.plot_calibration(symbol, save_path=regression_plot_path)
+            plot_paths['regression'] = regression_plot_path
+        
+        return plot_paths
+    
+    def get_stats(self, symbol=None):
+        """
+        Obtenir les statistiques de calibration.
+        
+        Args:
+            symbol: Symbole spécifique (ou None pour tous les symboles)
+            
+        Returns:
+            Statistiques de calibration
+        """
+        if symbol:
+            return self.calibration_stats.get(symbol, {})
+        
+        return self.calibration_stats
+    
+    def save(self):
+        """
+        Sauvegarder l'état du système de calibration.
+        """
+        # Sauvegarder les calibrateurs
+        self.classification_calibrator.save()
+        self.regression_calibrator.save()
+        
+        # Sauvegarder les statistiques
+        stats_path = os.path.join(self.models_dir, 'calibration_stats.pkl')
+        joblib.dump(self.calibration_stats, stats_path)
+        
+        logger.info(f"Saved calibration system state to {self.models_dir}")
+    
+    def load(self):
+        """
+        Charger l'état du système de calibration.
+        """
+        # Charger les calibrateurs
+        self.classification_calibrator.load()
+        self.regression_calibrator.load()
+        
+        # Charger les statistiques
+        stats_path = os.path.join(self.models_dir, 'calibration_stats.pkl')
+        if os.path.exists(stats_path):
+            self.calibration_stats = joblib.load(stats_path)
+        
+        logger.info(f"Loaded calibration system state from {self.models_dir}") 

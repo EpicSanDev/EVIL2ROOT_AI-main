@@ -1,0 +1,23 @@
+{
+    "news_analyzer_plugin": {
+        "id": "news_analyzer_plugin",
+        "name": "Analyseur de News Avancé",
+        "description": "Plugin d'analyse avancée de news et de sentiment pour EVIL2ROOT Trading Bot",
+        "version": "1.0.0",
+        "author": "Evil2Root Team",
+        "module": "news_analyzer_plugin",
+        "class": "NewsAnalyzerPlugin",
+        "enabled": true,
+        "install_date": "2023-03-11T21:07:00",
+        "last_update": "2023-03-11T21:11:00",
+        "settings": {
+            "max_news_per_symbol": 50,
+            "sentiment_threshold": 0.65,
+            "impact_threshold": 0.8,
+            "news_sources": ["reuters", "bloomberg", "yahoo_finance", "seeking_alpha"],
+            "update_interval": 30,
+            "enable_notifications": true,
+            "store_history": true
+        }
+    }
+} 

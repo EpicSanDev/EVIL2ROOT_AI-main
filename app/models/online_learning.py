@@ -621,4 +621,217 @@ class ContinualLearningManager:
                     'metrics': self.model_metrics.get(symbol, {})
                 }
                 for symbol, buf in self.memory_buffers.items()
-            } 
+            }
+
+class OnlineLearningModel:
+    """
+    Interface pour l'apprentissage en ligne des modèles de trading.
+    
+    Cette classe encapsule le gestionnaire d'apprentissage continu (ContinualLearningManager)
+    et fournit une interface simplifiée pour l'intégration avec le système de trading.
+    """
+    
+    def __init__(
+        self,
+        memory_size=5000,
+        buffer_strategy='diverse',
+        enable_ewc=True,
+        enable_drift_detection=True,
+        models_dir='saved_models/online_learning'
+    ):
+        """
+        Initialiser le modèle d'apprentissage en ligne.
+        
+        Args:
+            memory_size: Taille maximale de la mémoire tampon
+            buffer_strategy: Stratégie de gestion de la mémoire ('recent', 'diverse', 'prototype', 'uncertainty')
+            enable_ewc: Activer la consolidation élastique des poids (Elastic Weight Consolidation)
+            enable_drift_detection: Activer la détection de dérive conceptuelle
+            models_dir: Répertoire pour sauvegarder les points de contrôle des modèles
+        """
+        self.cl_manager = ContinualLearningManager(
+            memory_size=memory_size,
+            buffer_strategy=buffer_strategy,
+            enable_ewc=enable_ewc,
+            enable_drift_detection=enable_drift_detection,
+            models_dir=models_dir
+        )
+        
+        # Dictionnaire pour stocker les modèles par symbole
+        self.models = {}
+        
+        # Statistiques d'apprentissage
+        self.update_stats = {}
+        
+        logger.info(f"Initialized OnlineLearningModel with memory size: {memory_size}, "
+                   f"buffer strategy: {buffer_strategy}, EWC: {enable_ewc}, "
+                   f"drift detection: {enable_drift_detection}")
+    
+    def initialize_for_symbol(self, symbol, model, input_shape):
+        """
+        Initialiser l'apprentissage en ligne pour un symbole spécifique.
+        
+        Args:
+            symbol: Symbole de trading
+            model: Modèle TensorFlow/Keras initial
+            input_shape: Forme des données d'entrée
+        """
+        self.models[symbol] = model
+        self.cl_manager.initialize_memory(symbol, input_shape)
+        self.update_stats[symbol] = {
+            'updates': 0,
+            'drift_detected': 0,
+            'samples_processed': 0,
+            'last_loss': None,
+            'last_update_time': time.time()
+        }
+        logger.info(f"Initialized online learning for {symbol}")
+    
+    def update(self, symbol, X, y, epochs=5, batch_size=32, validation_split=0.2):
+        """
+        Mettre à jour le modèle avec de nouvelles données.
+        
+        Args:
+            symbol: Symbole de trading
+            X: Données d'entrée (features)
+            y: Données cibles
+            epochs: Nombre d'époques d'entraînement
+            batch_size: Taille du lot
+            validation_split: Fraction des données pour la validation
+            
+        Returns:
+            Dictionnaire contenant les métriques d'entraînement
+        """
+        if symbol not in self.models:
+            logger.warning(f"Model for {symbol} not initialized. Skipping update.")
+            return None
+        
+        # Vérifier la dérive conceptuelle
+        if self.cl_manager.enable_drift_detection:
+            drift_detected = self.cl_manager.detect_drift(symbol, X)
+            if drift_detected:
+                logger.info(f"Concept drift detected for {symbol}. Adjusting learning parameters.")
+                self.update_stats[symbol]['drift_detected'] += 1
+                # Augmenter le nombre d'époques en cas de dérive
+                epochs = min(epochs * 2, 20)
+        
+        # Ajouter les échantillons à la mémoire
+        importance = np.ones(len(X))  # Importance uniforme par défaut
+        self.cl_manager.add_samples(symbol, X, y, importance)
+        
+        # Mettre à jour le modèle
+        update_result = self.cl_manager.update_model(
+            symbol, 
+            self.models[symbol], 
+            X, y, 
+            epochs=epochs, 
+            batch_size=batch_size, 
+            validation_split=validation_split
+        )
+        
+        # Mettre à jour les statistiques
+        self.update_stats[symbol]['updates'] += 1
+        self.update_stats[symbol]['samples_processed'] += len(X)
+        self.update_stats[symbol]['last_loss'] = update_result.get('val_loss', update_result.get('loss'))
+        self.update_stats[symbol]['last_update_time'] = time.time()
+        
+        logger.info(f"Updated model for {symbol} with {len(X)} samples. "
+                   f"Loss: {self.update_stats[symbol]['last_loss']}")
+        
+        return update_result
+    
+    def predict(self, symbol, X):
+        """
+        Faire des prédictions avec le modèle mis à jour.
+        
+        Args:
+            symbol: Symbole de trading
+            X: Données d'entrée
+            
+        Returns:
+            Prédictions du modèle
+        """
+        if symbol not in self.models:
+            logger.warning(f"Model for {symbol} not initialized. Cannot predict.")
+            return None
+        
+        return self.models[symbol].predict(X)
+    
+    def get_stats(self, symbol=None):
+        """
+        Obtenir les statistiques d'apprentissage en ligne.
+        
+        Args:
+            symbol: Symbole spécifique (ou None pour tous les symboles)
+            
+        Returns:
+            Statistiques d'apprentissage
+        """
+        if symbol:
+            if symbol in self.update_stats:
+                stats = self.update_stats[symbol].copy()
+                # Ajouter les statistiques de mémoire
+                memory_stats = self.cl_manager.get_memory_stats(symbol)
+                stats.update(memory_stats)
+                return stats
+            return None
+        
+        # Retourner les statistiques pour tous les symboles
+        all_stats = {}
+        for sym in self.update_stats:
+            all_stats[sym] = self.get_stats(sym)
+        return all_stats
+    
+    def save(self, directory=None):
+        """
+        Sauvegarder l'état du modèle d'apprentissage en ligne.
+        
+        Args:
+            directory: Répertoire de sauvegarde (utilise models_dir par défaut si None)
+        """
+        if directory is None:
+            directory = self.cl_manager.models_dir
+        
+        os.makedirs(directory, exist_ok=True)
+        
+        # Sauvegarder l'état du gestionnaire d'apprentissage continu
+        self.cl_manager.save_state(os.path.join(directory, 'cl_manager_state.pkl'))
+        
+        # Sauvegarder les modèles
+        for symbol, model in self.models.items():
+            model_path = os.path.join(directory, f'{symbol}_online_model.h5')
+            model.save(model_path)
+        
+        # Sauvegarder les statistiques
+        joblib.dump(self.update_stats, os.path.join(directory, 'update_stats.pkl'))
+        
+        logger.info(f"Saved online learning state to {directory}")
+    
+    def load(self, directory=None):
+        """
+        Charger l'état du modèle d'apprentissage en ligne.
+        
+        Args:
+            directory: Répertoire de chargement (utilise models_dir par défaut si None)
+        """
+        if directory is None:
+            directory = self.cl_manager.models_dir
+        
+        # Charger l'état du gestionnaire d'apprentissage continu
+        cl_state_path = os.path.join(directory, 'cl_manager_state.pkl')
+        if os.path.exists(cl_state_path):
+            self.cl_manager.load_state(cl_state_path)
+        
+        # Charger les modèles
+        for file in os.listdir(directory):
+            if file.endswith('_online_model.h5'):
+                symbol = file.replace('_online_model.h5', '')
+                model_path = os.path.join(directory, file)
+                self.models[symbol] = tf.keras.models.load_model(model_path)
+        
+        # Charger les statistiques
+        stats_path = os.path.join(directory, 'update_stats.pkl')
+        if os.path.exists(stats_path):
+            self.update_stats = joblib.load(stats_path)
+        
+        logger.info(f"Loaded online learning state from {directory}") 
