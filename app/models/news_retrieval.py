@@ -187,7 +187,7 @@ class NewsRetriever:
             """
             
             data = {
-                "model": "perplexity/sonar-medium-online",  # Utilisation du modèle Sonar via OpenRouter
+                "model": "perplexity/sonar-deep-research",  # Utilisation du modèle Sonar via OpenRouter
                 "messages": [
                     {"role": "user", "content": prompt}
                 ],
