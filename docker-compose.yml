@@ -22,9 +22,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: 4G
         reservations:
-          memory: 1G
+          memory: 2G
 
   analysis-bot:
     build: .
@@ -44,9 +44,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: 4G
         reservations:
-          memory: 1G
+          memory: 2G
 
   market-scheduler:
     build: .
@@ -66,9 +66,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: 4G
         reservations:
-          memory: 1G
+          memory: 2G
 
   train-and-analyze:
     build: .
@@ -88,9 +88,13 @@ services:
     deploy:
       resources:
         limits:
-          memory: 8G
+          memory: 16G
         reservations:
-          memory: 4G
+          memory: 8G
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - TF_FORCE_GPU_ALLOW_GROWTH=true
 
   market-scheduler-force-train:
     build: .
@@ -110,9 +114,13 @@ services:
     deploy:
       resources:
         limits:
-          memory: 8G
+          memory: 16G
         reservations:
-          memory: 4G
+          memory: 8G
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - TF_FORCE_GPU_ALLOW_GROWTH=true
 
   db:
     image: postgres:13

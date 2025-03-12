@@ -12,6 +12,49 @@ from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCh
 from sklearn.model_selection import train_test_split, TimeSeriesSplit
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import optuna
+import concurrent.futures
+
+# Fonction de vérification du GPU
+def check_gpu_availability():
+    """Vérifie si le GPU est disponible et renvoie les informations de configuration"""
+    gpus = tf.config.list_physical_devices('GPU')
+    gpu_info = {
+        'available': len(gpus) > 0,
+        'devices': [],
+        'memory_details': []
+    }
+    
+    if gpus:
+        for gpu in gpus:
+            gpu_info['devices'].append(str(gpu))
+            
+            # Configurer la croissance mémoire pour éviter de monopoliser toute la VRAM
+            try:
+                tf.config.experimental.set_memory_growth(gpu, True)
+                gpu_info['memory_growth_enabled'] = True
+            except RuntimeError as e:
+                gpu_info['memory_growth_enabled'] = False
+                gpu_info['memory_growth_error'] = str(e)
+        
+        # Tentative d'obtention d'informations VRAM (uniquement informatif)
+        try:
+            import subprocess
+            gpu_memory_info = subprocess.check_output(
+                ['nvidia-smi', '--query-gpu=memory.total,memory.free', '--format=csv,nounits,noheader']
+            ).decode('utf-8').strip().split('\n')
+            
+            for info in gpu_memory_info:
+                total, free = info.split(',')
+                gpu_info['memory_details'].append({
+                    'total_mb': int(total.strip()),
+                    'free_mb': int(free.strip()),
+                    'used_mb': int(total.strip()) - int(free.strip())
+                })
+        except:
+            # Si cette commande échoue, c'est OK (elle est juste informative)
+            pass
+    
+    return gpu_info
 
 # Try to import TFKerasPruningCallback, but provide a fallback if it's not available
 try:
@@ -61,17 +104,42 @@ class ModelTrainer:
         # Ensure models directory exists
         os.makedirs(self.models_dir, exist_ok=True)
         
+        # Vérification et configuration du GPU
+        gpu_info = check_gpu_availability()
+        self.gpu_available = gpu_info['available']
+        
+        if self.gpu_available:
+            logger.info(f"GPU détecté! Nombre de GPUs: {len(gpu_info['devices'])}")
+            for i, device in enumerate(gpu_info['devices']):
+                logger.info(f"  GPU #{i}: {device}")
+            
+            # Si les détails de mémoire sont disponibles
+            if 'memory_details' in gpu_info and gpu_info['memory_details']:
+                for i, mem_info in enumerate(gpu_info['memory_details']):
+                    logger.info(f"  GPU #{i} VRAM: {mem_info['total_mb']}MB total, {mem_info['free_mb']}MB libre")
+            
+            # État de la croissance mémoire (memory growth)
+            if gpu_info.get('memory_growth_enabled', False):
+                logger.info("  GPU memory growth activé: la mémoire VRAM sera allouée progressivement")
+            else:
+                logger.warning("  GPU memory growth non activé. Raison: " + 
+                              gpu_info.get('memory_growth_error', 'inconnu'))
+        else:
+            logger.warning("Aucun GPU détecté! L'entraînement sera plus lent.")
+            logger.warning("Si vous avez bien une RTX 2070 SUPER, vérifiez l'installation des pilotes NVIDIA")
+            logger.warning("et exécutez le script install_nvidia_docker.sh")
+        
         # Optimization settings
         self.max_optimization_trials = int(os.environ.get('MAX_OPTIMIZATION_TRIALS', 25))
         self.optimization_timeout = int(os.environ.get('OPTIMIZATION_TIMEOUT', 3600))  # 1 hour default
-        self.use_gpu = tf.config.list_physical_devices('GPU') and os.environ.get('USE_GPU', 'true').lower() == 'true'
+        self.use_gpu = self.gpu_available and os.environ.get('USE_GPU', 'true').lower() == 'true'
         
         # Performance tracking
         self.model_metrics = {}
         self.best_params = {}
         
         # New model types
-        self.use_transformer = os.environ.get('USE_TRANSFORMER_MODEL', 'true').lower() == 'true'
+        self.use_transformer = os.environ.get('TRANSFORMER_MODEL_ENABLED', 'true').lower() == 'true'
         
         # Online learning settings
         self.enable_online_learning = os.environ.get('ENABLE_ONLINE_LEARNING', 'true').lower() == 'true'
@@ -80,10 +148,15 @@ class ModelTrainer:
         self.min_data_points_for_update = int(os.environ.get('MIN_DATA_POINTS_FOR_UPDATE', 30))
         self.online_learning_memory = {}  # Store recent data points for incremental learning
         
-        logger.info(f"ModelTrainer initialized with optimization settings: trials={self.max_optimization_trials}, timeout={self.optimization_timeout}s")
-        logger.info(f"GPU acceleration {'enabled' if self.use_gpu else 'disabled'}")
-        logger.info(f"Transformer model {'enabled' if self.use_transformer else 'disabled'}")
-        logger.info(f"Online learning {'enabled' if self.enable_online_learning else 'disabled'}")
+        # Configuration pour la carte RTX 2070 SUPER
+        lstm_units = int(os.environ.get('LSTM_UNITS', 128))
+        
+        logger.info(f"ModelTrainer initialisé avec paramètres optimisés pour RTX 2070 SUPER")
+        logger.info(f"Trials: {self.max_optimization_trials}, Timeout: {self.optimization_timeout}s")
+        logger.info(f"Accélération GPU: {'activée' if self.use_gpu else 'désactivée'}")
+        logger.info(f"Modèle Transformer: {'activé' if self.use_transformer else 'désactivé'}")
+        logger.info(f"Apprentissage en ligne: {'activé' if self.enable_online_learning else 'désactivé'}")
+        logger.info(f"Unités LSTM: {lstm_units}")
     
     async def train_all_models(self, data_manager):
         """
