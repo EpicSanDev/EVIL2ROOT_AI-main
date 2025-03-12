@@ -149,8 +149,8 @@ Le système est conçu comme une architecture microservices, avec plusieurs comp
 
 1. Clonez le dépôt:
    ```bash
-   git clone https://github.com/Evil2Root/EVIL2ROOT_AI.git
-   cd EVIL2ROOT_AI
+   git clone https://github.com/EpicSanDev/EVIL2ROOT_AI-main.git
+   cd EVIL2ROOT_AI-main
    ```
 
 2. Configurez les variables d'environnement:
