@@ -140,8 +140,8 @@ class DailyAnalysisBot:
                 
                 # Récupérer les données historiques pour l'entraînement
                 try:
-                    # Utiliser une période plus longue pour l'entraînement
-                    market_data = self.fetch_market_data(symbol, period="2y", interval="1d")
+                    # Utiliser une période plus longue pour l'entraînement (5 ans au lieu de 2)
+                    market_data = self.fetch_market_data(symbol, period="5y", interval="1d")
                     
                     # Entraîner le modèle de prédiction de prix
                     self._train_price_model(symbol, market_data)
@@ -294,6 +294,19 @@ class DailyAnalysisBot:
                 self.transformer_models[symbol].load(model_path, scaler_path)
             else:
                 logger.info(f"Training new transformer model for {symbol}")
+                # Check if we have enough data for training, if not, fetch more
+                if len(market_data) < 100:
+                    logger.warning(f"Not enough data for {symbol}, fetching more historical data...")
+                    try:
+                        market_data = self.fetch_market_data(symbol, period="max", interval="1d")
+                        if len(market_data) < 100:
+                            logger.error(f"Still insufficient data for {symbol} to train model after fetching maximum history")
+                            raise ValueError(f"Insufficient data for {symbol} to train transformer model")
+                        logger.info(f"Successfully fetched extended data for {symbol}: {len(market_data)} data points")
+                    except Exception as e:
+                        logger.error(f"Failed to fetch extended data for {symbol}: {e}")
+                        raise
+                
                 # Initialiser le modèle s'il n'existe pas
                 if symbol not in self.transformer_models:
                     self.transformer_models[symbol] = FinancialTransformer(
@@ -374,7 +387,12 @@ class DailyAnalysisBot:
             data = yf.download([symbol], period=period, interval=interval, progress=False)
             
             if data.empty:
-                raise ValueError(f"No data received for {symbol}")
+                logger.warning(f"No data received for {symbol} using period={period}. Attempting with maximum period...")
+                # Try again with max period as fallback
+                data = yf.download([symbol], period="max", interval=interval, progress=False)
+                
+                if data.empty:
+                    raise ValueError(f"No data received for {symbol} even with maximum period")
             
             # If 'Adj Close' is a MultiIndex DataFrame (when downloaded as a list), get the first level
             if isinstance(data.columns, pd.MultiIndex):
@@ -387,6 +405,9 @@ class DailyAnalysisBot:
                 
             # Ajouter les indicateurs techniques
             self._add_technical_indicators(data)
+            
+            # Log data size for debugging
+            logger.info(f"Downloaded {len(data)} data points for {symbol}")
             
             return data
         except Exception as e:
