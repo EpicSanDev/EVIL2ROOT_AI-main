@@ -21,7 +21,14 @@ jobs:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
       - name: Log in to DigitalOcean Container Registry
-        run: doctl registry login --expiry-seconds 3600
+        run: |
+          echo "${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}" | docker login registry.digitalocean.com -u "${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}" --password-stdin
+
+      - name: Debug registry info
+        run: |
+          echo "Registry Name: epicsandev"
+          echo "Registry URL: registry.digitalocean.com/epicsandev"
+          doctl registry repository list || echo "Impossible de lister les dépôts"
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v4
@@ -29,10 +36,10 @@ jobs:
           context: .
           push: true
           tags: |
-            registry.digitalocean.com/${{ secrets.DIGITALOCEAN_REGISTRY_NAME }}/evil2root-ai:latest
-            registry.digitalocean.com/${{ secrets.DIGITALOCEAN_REGISTRY_NAME }}/evil2root-ai:${{ github.sha }}
-          cache-from: type=registry,ref=registry.digitalocean.com/${{ secrets.DIGITALOCEAN_REGISTRY_NAME }}/evil2root-ai:buildcache
-          cache-to: type=registry,ref=registry.digitalocean.com/${{ secrets.DIGITALOCEAN_REGISTRY_NAME }}/evil2root-ai:buildcache,mode=max
+            registry.digitalocean.com/epicsandev/evil2root-ai:latest
+            registry.digitalocean.com/epicsandev/evil2root-ai:${{ github.sha }}
+          cache-from: type=registry,ref=registry.digitalocean.com/epicsandev/evil2root-ai:buildcache
+          cache-to: type=registry,ref=registry.digitalocean.com/epicsandev/evil2root-ai:buildcache,mode=max
           build-args: |
             BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
             GIT_COMMIT=${{ github.sha }}
@@ -40,5 +47,5 @@ jobs:
       - name: Notify build completion
         if: success()
         run: |
-          echo "Image successfully built and pushed to registry.digitalocean.com/${{ secrets.DIGITALOCEAN_REGISTRY_NAME }}/evil2root-ai:latest"
+          echo "Image successfully built and pushed to registry.digitalocean.com/epicsandev/evil2root-ai:latest"
           echo "Image tag: ${{ github.sha }}" 
