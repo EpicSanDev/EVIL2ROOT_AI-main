@@ -13,4 +13,8 @@ resources:
   - market-scheduler-deployment.yaml
   - train-analyze-job.yaml
   - monitoring-deployment.yaml
-  - adminer-deployment.yaml 
+  - adminer-deployment.yaml
+  - hpa.yaml
+  - network-policies.yaml
+  - pod-disruption-budgets.yaml
+  - database-backup.yaml 

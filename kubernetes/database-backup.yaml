@@ -1,0 +1,107 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-backup-script
+  namespace: evil2root-trading
+data:
+  backup.sh: |
+    #!/bin/bash
+    set -e
+    
+    # Configuration
+    BACKUP_DIR="/backups"
+    POSTGRES_HOST="postgres"
+    POSTGRES_PORT="5432"
+    POSTGRES_DB="${POSTGRES_DB}"
+    POSTGRES_USER="${POSTGRES_USER}"
+    
+    # Créer le répertoire de backup s'il n'existe pas
+    mkdir -p ${BACKUP_DIR}
+    
+    # Nom du fichier avec date et heure
+    BACKUP_FILENAME="${BACKUP_DIR}/backup-$(date +%Y%m%d-%H%M%S).sql.gz"
+    
+    # Exécuter la sauvegarde
+    echo "Sauvegarde de la base de données ${POSTGRES_DB} en cours..."
+    pg_dump -h ${POSTGRES_HOST} -p ${POSTGRES_PORT} -U ${POSTGRES_USER} ${POSTGRES_DB} | gzip > ${BACKUP_FILENAME}
+    
+    # Vérifier la taille de la sauvegarde
+    BACKUP_SIZE=$(du -h ${BACKUP_FILENAME} | cut -f1)
+    echo "Sauvegarde terminée : ${BACKUP_FILENAME} (${BACKUP_SIZE})"
+    
+    # Nettoyage des anciennes sauvegardes (garder les 7 dernières)
+    find ${BACKUP_DIR} -type f -name "backup-*.sql.gz" | sort -r | tail -n +8 | xargs -r rm
+    echo "Nettoyage des anciennes sauvegardes terminé, conservation des 7 plus récentes."
+    
+    # Liste des sauvegardes disponibles
+    echo "Liste des sauvegardes disponibles :"
+    ls -lh ${BACKUP_DIR}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: evil2root-trading
+spec:
+  schedule: "0 2 * * *"  # Tous les jours à 2h du matin
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: postgres-backup
+            image: postgres:13
+            command:
+            - /bin/bash
+            - /scripts/backup.sh
+            env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: trading-bot-secrets
+                  key: DB_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: trading-bot-secrets
+                  key: DB_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: trading-bot-secrets
+                  key: DB_NAME
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: trading-bot-secrets
+                  key: DB_PASSWORD
+            volumeMounts:
+            - name: backup-volume
+              mountPath: /backups
+            - name: backup-script
+              mountPath: /scripts
+          volumes:
+          - name: backup-volume
+            persistentVolumeClaim:
+              claimName: postgres-backups
+          - name: backup-script
+            configMap:
+              name: postgres-backup-script
+              defaultMode: 0755
+          restartPolicy: OnFailure
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-backups
+  namespace: evil2root-trading
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard 
