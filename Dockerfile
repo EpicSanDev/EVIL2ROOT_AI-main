@@ -1,8 +1,45 @@
-FROM python:3.9-slim
+FROM python:3.9-slim AS builder
 
 # Arguments de build pour les métadonnées
 ARG BUILD_DATE
 ARG GIT_COMMIT
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    TZ=UTC \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PATH="/opt/venv/bin:$PATH"
+
+# Create working directory
+WORKDIR /app
+
+# Install system dependencies, create virtual environment, and cleanup in one layer
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    curl \
+    && python -m venv /opt/venv \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install essential dependencies first (for better caching)
+COPY requirements-essential.txt .
+RUN pip install --no-cache-dir -r requirements-essential.txt
+
+# Install Plotly and Dash separately to avoid heavy dependencies
+RUN pip install --no-cache-dir plotly==5.14.1 --no-deps \
+    && pip install --no-cache-dir dash==2.10.0 --no-deps
+
+# Install remaining dependencies excluding Plotly and Dash
+COPY requirements.txt .
+RUN grep -v "plotly\|dash" requirements.txt > requirements-filtered.txt \
+    && pip install --no-cache-dir -r requirements-filtered.txt \
+    && pip install --no-cache-dir prometheus_client>=0.16.0
+
+# Multi-stage build for smaller final image
+FROM python:3.9-slim AS runtime
 
 # Métadonnées pour la traçabilité et la gestion des images
 LABEL org.opencontainers.image.created=${BUILD_DATE} \
@@ -15,48 +52,27 @@ LABEL org.opencontainers.image.created=${BUILD_DATE} \
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     TZ=UTC \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_NO_CACHE_DIR=1
+    FLASK_APP=run.py \
+    FLASK_ENV=production \
+    PATH="/opt/venv/bin:$PATH"
+
+# Install only runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    git \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Copy virtual environment from builder stage
+COPY --from=builder /opt/venv /opt/venv
 
-# Install essential dependencies
-COPY requirements-essential.txt .
-RUN --mount=type=cache,target=/root/.cache/pip pip install --no-cache-dir -r requirements-essential.txt
-
-# Install Plotly and Dash separately to avoid heavy dependencies
-RUN --mount=type=cache,target=/root/.cache/pip pip install --no-cache-dir plotly==5.14.1 --no-deps \
-    && pip install --no-cache-dir dash==2.10.0 --no-deps
-
-# Install remaining dependencies excluding Plotly and Dash
-COPY requirements.txt .
-RUN grep -v "plotly\|dash" requirements.txt > requirements-filtered.txt
-RUN --mount=type=cache,target=/root/.cache/pip pip install --no-cache-dir -r requirements-filtered.txt
-
-# Ensure prometheus-client is installed
-RUN --mount=type=cache,target=/root/.cache/pip pip install --no-cache-dir prometheus_client>=0.16.0
+# Create necessary directories with proper permissions
+RUN mkdir -p data logs saved_models && \
+    chown -R nobody:nogroup data logs saved_models
 
 # Copy application code
 COPY . .
-
-# Create necessary directories
-RUN mkdir -p data logs saved_models
-
-# Set up environment
-ENV FLASK_APP=run.py \
-    FLASK_ENV=production
-
-# Health check pour DigitalOcean et Docker Swarm
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD curl -f http://localhost:5000/health || exit 1
 
 # Make scripts executable
 RUN chmod +x start_daily_analysis.py \
@@ -65,8 +81,15 @@ RUN chmod +x start_daily_analysis.py \
     stop_market_scheduler.sh \
     analysis-bot-entrypoint.sh
 
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+  CMD curl -f http://localhost:5000/health || exit 1
+
 # Expose port
 EXPOSE 5000
+
+# Use non-root user for security
+USER nobody:nogroup
 
 # Set entrypoint
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
