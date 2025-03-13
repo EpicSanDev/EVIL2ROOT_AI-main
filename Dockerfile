@@ -32,6 +32,9 @@ RUN pip install --no-cache-dir -r requirements-essential.txt
 RUN pip install --no-cache-dir plotly==5.14.1 --no-deps \
     && pip install --no-cache-dir dash==2.10.0 --no-deps
 
+# Install protobuf explicitly before tensorflow to avoid conflicts
+RUN pip install --no-cache-dir "protobuf>=3.20.3,<5.0.0dev"
+
 # Install remaining dependencies excluding Plotly and Dash
 COPY requirements.txt .
 RUN grep -v "plotly\|dash" requirements.txt > requirements-filtered.txt \

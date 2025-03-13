@@ -30,6 +30,7 @@ pytest-cov==4.1.0
 python-telegram-bot==20.6
 asyncio==3.4.3
 schedule==1.2.0
+protobuf==3.20.3  # Version compatible avec tensorflow 2.15.0
 
 # AI/ML Dependencies
 tensorflow==2.15.0

@@ -25,7 +25,12 @@ echo "Installation des prérequis via des wheels pré-compilés..."
 $PYTHON_CMD -m pip install --upgrade pip
 $PYTHON_CMD -m pip install --only-binary=:all: --no-cache-dir cython wheel setuptools
 
+# Installer protobuf dans la version compatible avec TensorFlow
+echo "Installation de protobuf dans une version compatible avec TensorFlow..."
+$PYTHON_CMD -m pip install --no-cache-dir "protobuf>=3.20.3,<5.0.0dev"
+
 # Installer numpy et d'autres dépendances avec des versions spécifiques pour éviter les incompatibilités
+echo "Installation des dépendances scientifiques..."
 $PYTHON_CMD -m pip install --only-binary=:all: --no-cache-dir \
     numpy==1.24.3 \
     scipy==1.10.1 \
@@ -37,6 +42,7 @@ echo "Vérification des dépendances installées..."
 $PYTHON_CMD -c "import numpy; print(f'NumPy version: {numpy.__version__}')" || echo "NumPy non disponible"
 $PYTHON_CMD -c "import scipy; print(f'SciPy version: {scipy.__version__}')" || echo "SciPy non disponible"
 $PYTHON_CMD -c "import sklearn; print(f'Scikit-learn version: {sklearn.__version__}')" || echo "Scikit-learn non disponible"
+$PYTHON_CMD -c "import google.protobuf; print(f'Protobuf version: {google.protobuf.__version__}')" || echo "Protobuf non disponible"
 
 # Éviter les problèmes de compilation en configurant l'environnement
 export SKBUILD_CONFIGURE_OPTIONS="-DBUILD_TESTING=OFF"
@@ -44,13 +50,16 @@ export CFLAGS="-std=c99"
 export PIP_NO_BUILD_ISOLATION=1
 export SKLEARN_NO_OPENMP=1
 
-# Stratégie 1: Utiliser des wheels pré-compilées via pypi
+# Stratégie 1: Utiliser des wheels pré-compilées via pypi avec désactivation du resolver pip
 echo "Tentative d'installation à partir de wheels pré-compilées..."
 
 # Pour Python 3.10+, utiliser une version récente
 if [[ "${PYTHON_VERSION}" > "3.9" ]]; then
     echo "Python 3.10+ détecté, tentative avec causalml 0.10.0..."
-    $PYTHON_CMD -m pip install --no-cache-dir causalml==0.10.0
+    $PYTHON_CMD -m pip install --no-cache-dir --no-deps causalml==0.10.0
+    
+    # Installer les dépendances manquantes
+    $PYTHON_CMD -m pip install --no-cache-dir statsmodels==0.14.0 graphviz==0.20.1
     
     if $PYTHON_CMD -m pip show causalml > /dev/null 2>&1; then
         echo "✅ causalml 0.10.0 installé avec succès"
@@ -61,7 +70,10 @@ fi
 
 # Tenter avec version 0.9.0 (plus largement compatible)
 echo "Tentative avec causalml 0.9.0..."
-$PYTHON_CMD -m pip install --no-cache-dir causalml==0.9.0
+$PYTHON_CMD -m pip install --no-cache-dir --no-deps causalml==0.9.0
+
+# Installer les dépendances manquantes
+$PYTHON_CMD -m pip install --no-cache-dir statsmodels==0.14.0 graphviz==0.20.1
 
 if $PYTHON_CMD -m pip show causalml > /dev/null 2>&1; then
     echo "✅ causalml 0.9.0 installé avec succès"
@@ -84,9 +96,12 @@ echo "Modification du setup.py pour éviter la compilation Cython..."
 sed -i 's/ext_modules=cythonize(extensions)/ext_modules=[]/g' setup.py
 sed -i 's/extensions = \[.*\]/extensions = []/g' setup.py
 
-# Installer avec pip en mode développement
+# Installer avec pip en mode développement sans résolution de dépendances
 echo "Installation sans extensions Cython..."
-$PYTHON_CMD -m pip install -e .
+$PYTHON_CMD -m pip install --no-deps -e .
+
+# Installer les dépendances manquantes manuellement
+$PYTHON_CMD -m pip install --no-cache-dir statsmodels==0.14.0 graphviz==0.20.1
 
 if $PYTHON_CMD -m pip show causalml > /dev/null 2>&1; then
     echo "✅ causalml installé avec succès (sans extensions Cython)"
