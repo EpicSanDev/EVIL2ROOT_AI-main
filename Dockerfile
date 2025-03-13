@@ -92,12 +92,12 @@ WORKDIR /app
 # Copy virtual environment from builder stage
 COPY --from=builder /opt/venv /opt/venv
 
+# Copy application code first, before creating directories and running scripts
+COPY . .
+
 # Create necessary directories with proper permissions
 RUN mkdir -p data logs saved_models && \
     chown -R nobody:nogroup data logs saved_models
-
-# Copy application code
-COPY . .
 
 # Make scripts executable and prepare environment
 RUN chmod +x docker/prepare-scripts.sh && \
