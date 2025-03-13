@@ -59,7 +59,7 @@ RUN pip install --no-cache-dir prometheus_client>=0.16.0
 
 # Copy and run the causalml fix script
 COPY docker/fix-causalml-install.sh /tmp/fix-causalml-install.sh
-RUN chmod +x /tmp/fix-causalml-install.sh && /tmp/fix-causalml-install.sh || echo "Installation de causalml échouée - l'application fonctionnera sans ce package"
+RUN chmod +x /tmp/fix-causalml-install.sh && /tmp/fix-causalml-install.sh || echo "⚠️ Installation de causalml échouée - un package factice a été créé pour éviter les erreurs"
 
 # Copier le script d'installation de finbert-embedding (optionnel)
 COPY docker/fix-finbert-install.sh /tmp/fix-finbert-install.sh
