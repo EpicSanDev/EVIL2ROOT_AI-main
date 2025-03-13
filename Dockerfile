@@ -53,9 +53,7 @@ RUN chmod +x /tmp/fix-causalml-install.sh && /tmp/fix-causalml-install.sh
 FROM python:3.9-slim AS runtime
 
 # Métadonnées pour la traçabilité et la gestion des images
-LABEL org.opencontainers.image.created=${BUILD_DATE} \
-      org.opencontainers.image.revision=${GIT_COMMIT} \
-      org.opencontainers.image.title="Evil2Root AI" \
+LABEL org.opencontainers.image.title="Evil2Root AI" \
       org.opencontainers.image.vendor="Evil2Root" \
       maintainer="Evil2Root Team"
 

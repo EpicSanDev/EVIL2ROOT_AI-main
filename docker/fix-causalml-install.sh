@@ -5,7 +5,7 @@ echo "Installation de causalml avec contournement des problèmes de compilation.
 
 # Installer les dépendances nécessaires
 echo "Installation des prérequis pour causalml..."
-pip install --no-cache-dir cython>=0.29.33,<3.0.0
+pip install --no-cache-dir "cython>=0.29.33,<3.0.0"
 pip install --no-cache-dir numpy>=1.21.0 pandas>=1.3.0 scipy>=1.7.0 scikit-learn>=1.0.0 joblib>=1.0.0
 
 # Installer explicitement les autres dépendances nécessaires
