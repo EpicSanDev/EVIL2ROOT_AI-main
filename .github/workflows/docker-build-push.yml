@@ -11,6 +11,24 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Generate version number
+        id: version
+        run: |
+          # Obtenir la date formatée (YYYYMMDD)
+          DATE_VERSION=$(date +'%Y%m%d')
+          
+          # Obtenir le nombre de commits sur la branche actuelle
+          COMMIT_COUNT=$(git rev-list --count HEAD)
+          
+          # Créer un numéro de version combinant date et nombre de commits
+          FULL_VERSION="${DATE_VERSION}.${COMMIT_COUNT}"
+          
+          # Définir la version comme une variable d'output
+          echo "VERSION=${FULL_VERSION}" >> $GITHUB_OUTPUT
+          echo "Version générée: ${FULL_VERSION}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
@@ -37,15 +55,16 @@ jobs:
           push: true
           tags: |
             registry.digitalocean.com/epicsandev/evil2root-ai:latest
-            registry.digitalocean.com/epicsandev/evil2root-ai:${{ github.sha }}
+            registry.digitalocean.com/epicsandev/evil2root-ai:${{ steps.version.outputs.VERSION }}
           cache-from: type=registry,ref=registry.digitalocean.com/epicsandev/evil2root-ai:buildcache
           cache-to: type=registry,ref=registry.digitalocean.com/epicsandev/evil2root-ai:buildcache,mode=max
           build-args: |
             BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
             GIT_COMMIT=${{ github.sha }}
+            VERSION=${{ steps.version.outputs.VERSION }}
             
       - name: Notify build completion
         if: success()
         run: |
           echo "Image successfully built and pushed to registry.digitalocean.com/epicsandev/evil2root-ai:latest"
-          echo "Image tag: ${{ github.sha }}" 
+          echo "Image tag: ${{ steps.version.outputs.VERSION }}" 

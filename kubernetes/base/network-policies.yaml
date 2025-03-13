@@ -1,0 +1,177 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: evil2root-trading
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+---
+# Autoriser les pods web à accéder à postgres et redis
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: web-access
+  namespace: evil2root-trading
+spec:
+  podSelector:
+    matchLabels:
+      app: trading-bot
+      component: web
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
+    - protocol: TCP
+      port: 5000
+    - protocol: TCP
+      port: 9090
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+---
+# Autoriser les pods analysis-bot à accéder à postgres et redis
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: analysis-bot-access
+  namespace: evil2root-trading
+spec:
+  podSelector:
+    matchLabels:
+      app: trading-bot
+      component: analysis-bot
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+---
+# Autoriser les pods market-scheduler à accéder à postgres et redis
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: market-scheduler-access
+  namespace: evil2root-trading
+spec:
+  podSelector:
+    matchLabels:
+      app: trading-bot
+      component: market-scheduler
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+---
+# Autoriser l'accès à postgres
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-access
+  namespace: evil2root-trading
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: trading-bot
+    ports:
+    - protocol: TCP
+      port: 5432
+  - from:
+    - podSelector:
+        matchLabels:
+          app: adminer
+    ports:
+    - protocol: TCP
+      port: 5432
+---
+# Autoriser l'accès à redis
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-access
+  namespace: evil2root-trading
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: trading-bot
+    ports:
+    - protocol: TCP
+      port: 6379 

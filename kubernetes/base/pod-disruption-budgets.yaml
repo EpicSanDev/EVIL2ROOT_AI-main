@@ -1,0 +1,57 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: trading-bot-web-pdb
+  namespace: evil2root-trading
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: trading-bot
+      component: web
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: postgres-pdb
+  namespace: evil2root-trading
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: postgres
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis-pdb
+  namespace: evil2root-trading
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: redis
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: analysis-bot-pdb
+  namespace: evil2root-trading
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: trading-bot
+      component: analysis-bot
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: market-scheduler-pdb
+  namespace: evil2root-trading
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: trading-bot
+      component: market-scheduler 

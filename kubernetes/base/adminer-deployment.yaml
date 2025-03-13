@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adminer
+  namespace: evil2root-trading
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: adminer
+  template:
+    metadata:
+      labels:
+        app: adminer
+    spec:
+      containers:
+      - name: adminer
+        image: adminer
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "300m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adminer
+  namespace: evil2root-trading
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+  selector:
+    app: adminer
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: adminer-ingress
+  namespace: evil2root-trading
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+  - hosts:
+    - adminer.trading.example.com
+    secretName: adminer-tls
+  rules:
+  - host: adminer.trading.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: adminer
+            port:
+              number: 8080 
