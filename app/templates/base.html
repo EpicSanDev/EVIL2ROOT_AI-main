@@ -4,10 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="EVIL2ROOT AI-Powered Trading Dashboard">
-    <title>EVIL2ROOT Trading Bot Dashboard</title>
+    <meta name="theme-color" content="#2563eb">
+    <title>{% block title %}EVIL2ROOT Trading Bot{% endblock %}</title>
     
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/favicon.svg') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/apple-touch-icon.png') }}">
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -20,11 +22,13 @@
     <!-- CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
     
-    <!-- Plotly.js -->
+    <!-- Plotly.js for charts -->
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     
     <!-- App Scripts -->
     <script src="{{ url_for('static', filename='js/scripts.js') }}" defer></script>
+    
+    {% block extra_head %}{% endblock %}
 </head>
 
 <body>
@@ -32,32 +36,81 @@
         <header>
             <div class="container">
                 <div class="logo">
-                    <span class="logo-text">EVIL2ROOT</span>
-                    <span class="logo-badge">AI-TRADING</span>
+                    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" class="logo-icon">
+                        <path d="M16 2L2 9L16 16L30 9L16 2Z" fill="#2563EB"/>
+                        <path d="M16 16L2 9V23L16 30L30 23V9L16 16Z" fill="#3B82F6" fill-opacity="0.8"/>
+                        <path d="M16 16L9 12.5V21.5L16 25L23 21.5V12.5L16 16Z" fill="#FFFFFF"/>
+                    </svg>
+                    <div>
+                        <span class="logo-text">EVIL2ROOT</span>
+                        <span class="logo-badge">AI-TRADING</span>
+                    </div>
                 </div>
                 
-                <nav class="nav-links">
-                    <a href="/" class="{{ 'active' if request.path == '/' else '' }}">
-                        <i class="fas fa-chart-line"></i> Dashboard
-                    </a>
-                    <a href="/advanced" class="{{ 'active' if request.path == '/advanced' else '' }}">
-                        <i class="fas fa-chart-pie"></i> Advanced
-                    </a>
-                    <a href="/performance" class="{{ 'active' if request.path == '/performance' else '' }}">
-                        <i class="fas fa-chart-bar"></i> Performance
-                    </a>
-                    <a href="/plugins" class="{{ 'active' if request.path == '/plugins' else '' }}">
-                        <i class="fas fa-puzzle-piece"></i> Plugins
-                    </a>
-                    <a href="/settings" class="{{ 'active' if request.path == '/settings' else '' }}">
-                        <i class="fas fa-cog"></i> Settings
-                    </a>
+                <nav>
+                    <div class="nav-links">
+                        <a href="/" class="{{ 'active' if request.path == '/' else '' }}">
+                            <i class="fas fa-chart-line"></i> <span>Dashboard</span>
+                        </a>
+                        <a href="/advanced" class="{{ 'active' if request.path == '/advanced' else '' }}">
+                            <i class="fas fa-chart-pie"></i> <span>Advanced</span>
+                        </a>
+                        <a href="/performance" class="{{ 'active' if request.path == '/performance' else '' }}">
+                            <i class="fas fa-chart-bar"></i> <span>Performance</span>
+                        </a>
+                        <a href="/plugins" class="{{ 'active' if request.path == '/plugins' else '' }}">
+                            <i class="fas fa-puzzle-piece"></i> <span>Plugins</span>
+                        </a>
+                        <a href="/settings" class="{{ 'active' if request.path == '/settings' else '' }}">
+                            <i class="fas fa-cog"></i> <span>Settings</span>
+                        </a>
+                    </div>
+
+                    <div class="nav-actions">
+                        <button class="dark-mode-toggle" id="darkModeToggle" aria-label="Toggle dark mode">
+                            <i class="fas fa-moon"></i>
+                        </button>
+                        {% if current_user.is_authenticated %}
+                        <div class="dropdown">
+                            <button class="dropdown-toggle">
+                                <div class="avatar">
+                                    <span>{{ current_user.username[0].upper() }}</span>
+                                </div>
+                            </button>
+                            <div class="dropdown-menu">
+                                <a href="/profile">
+                                    <i class="fas fa-user"></i> Profil
+                                </a>
+                                <a href="/settings">
+                                    <i class="fas fa-cog"></i> Paramètres
+                                </a>
+                                <div class="dropdown-divider"></div>
+                                <a href="/logout">
+                                    <i class="fas fa-sign-out-alt"></i> Déconnexion
+                                </a>
+                            </div>
+                        </div>
+                        {% else %}
+                        <a href="/login" class="button primary small">
+                            <i class="fas fa-sign-in-alt"></i> Connexion
+                        </a>
+                        {% endif %}
+                    </div>
                 </nav>
             </div>
         </header>
         
         <main class="main-content">
             <div class="container">
+                {% block header %}
+                <div class="page-header">
+                    <h1>{% block page_title %}Dashboard{% endblock %}</h1>
+                    <div class="page-actions">
+                        {% block page_actions %}{% endblock %}
+                    </div>
+                </div>
+                {% endblock %}
+                
                 {% with messages = get_flashed_messages(with_categories=true) %}
                     {% if messages %}
                         {% for category, message in messages %}
@@ -79,16 +132,16 @@
                         <p>&copy; 2023-2024 EVIL2ROOT Trading Bot - Made with AI-Powered Trading Technology</p>
                     </div>
                     <div class="footer-links">
-                        <a href="https://github.com/evil2root" target="_blank"><i class="fab fa-github"></i></a>
-                        <a href="#" target="_blank"><i class="fab fa-twitter"></i></a>
-                        <a href="#" target="_blank"><i class="fab fa-linkedin"></i></a>
+                        <a href="https://github.com/evil2root" target="_blank" aria-label="GitHub"><i class="fab fa-github"></i></a>
+                        <a href="#" target="_blank" aria-label="Twitter"><i class="fab fa-twitter"></i></a>
+                        <a href="#" target="_blank" aria-label="LinkedIn"><i class="fab fa-linkedin"></i></a>
                     </div>
                 </div>
             </div>
         </footer>
     </div>
     
-    <!-- Notification container for dynamic notifications -->
+    <!-- Notification container -->
     <div id="notification-container"></div>
     
     <script>
@@ -97,12 +150,7 @@
             const notificationContainer = document.getElementById('notification-container');
             const notification = document.createElement('div');
             notification.className = `notification ${type}`;
-            
-            const icon = type === 'success' 
-                ? '<i class="fas fa-check-circle"></i>' 
-                : '<i class="fas fa-exclamation-circle"></i>';
-                
-            notification.innerHTML = `${icon} <span>${message}</span>`;
+            notification.innerHTML = `<span>${message}</span>`;
             
             notificationContainer.appendChild(notification);
             
@@ -116,6 +164,54 @@
                 }, 500);
             }, 4000);
         }
+        
+        // Initialize dropdown menus
+        document.addEventListener('DOMContentLoaded', function() {
+            const dropdowns = document.querySelectorAll('.dropdown');
+            
+            dropdowns.forEach(dropdown => {
+                const toggle = dropdown.querySelector('.dropdown-toggle');
+                const menu = dropdown.querySelector('.dropdown-menu');
+                
+                toggle.addEventListener('click', () => {
+                    menu.classList.toggle('show');
+                });
+                
+                // Close when clicking outside
+                document.addEventListener('click', (e) => {
+                    if (!dropdown.contains(e.target)) {
+                        menu.classList.remove('show');
+                    }
+                });
+            });
+            
+            // Dark mode toggle
+            const darkModeToggle = document.getElementById('darkModeToggle');
+            const htmlElement = document.documentElement;
+            
+            // Check for saved theme preference or respect OS preference
+            const savedTheme = localStorage.getItem('theme');
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            
+            if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
+                htmlElement.classList.add('dark-mode');
+                darkModeToggle.innerHTML = '<i class="fas fa-sun"></i>';
+            }
+            
+            darkModeToggle.addEventListener('click', () => {
+                htmlElement.classList.toggle('dark-mode');
+                
+                if (htmlElement.classList.contains('dark-mode')) {
+                    localStorage.setItem('theme', 'dark');
+                    darkModeToggle.innerHTML = '<i class="fas fa-sun"></i>';
+                } else {
+                    localStorage.setItem('theme', 'light');
+                    darkModeToggle.innerHTML = '<i class="fas fa-moon"></i>';
+                }
+            });
+        });
     </script>
+    
+    {% block scripts %}{% endblock %}
 </body>
 </html>
