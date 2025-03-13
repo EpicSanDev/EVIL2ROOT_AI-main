@@ -1,0 +1,22 @@
+[
+  {
+    "op": "replace",
+    "path": "/spec/template/spec/containers/0/startupProbe/initialDelaySeconds",
+    "value": 120
+  },
+  {
+    "op": "replace",
+    "path": "/spec/template/spec/containers/0/startupProbe/periodSeconds",
+    "value": 30
+  },
+  {
+    "op": "replace",
+    "path": "/spec/template/spec/containers/0/startupProbe/timeoutSeconds",
+    "value": 10
+  },
+  {
+    "op": "replace",
+    "path": "/spec/template/spec/containers/0/startupProbe/failureThreshold",
+    "value": 20
+  }
+] 
