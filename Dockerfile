@@ -42,12 +42,12 @@ RUN grep -v "plotly\|dash" requirements.txt > requirements-filtered.txt \
     && cat requirements-filtered.txt | grep -v "^#" | grep "^tensorflow\|^keras\|^torch\|^transformers\|^xgboost\|^lightgbm\|^catboost" > ml-deps.txt \
     && pip install --no-cache-dir -r ml-deps.txt \
     && cat requirements-filtered.txt | grep -v "^#" | grep -v "^numpy\|^pandas\|^scipy\|^scikit-learn\|^joblib\|^matplotlib\|^seaborn\|^requests\|^psycopg2\|^redis\|^psutil\|^flask\|^python-dotenv\|^gunicorn\|^tensorflow\|^keras\|^torch\|^transformers\|^xgboost\|^lightgbm\|^catboost\|^causalml\|^econml" > other-deps.txt \
-    && pip install --no-cache-dir -r other-deps.txt || true \
+    && pip install --no-cache-dir -r other-deps.txt \
     && pip install --no-cache-dir prometheus_client>=0.16.0
 
 # Copy and run the causalml fix script
 COPY docker/fix-causalml-install.sh /tmp/fix-causalml-install.sh
-RUN chmod +x /tmp/fix-causalml-install.sh && /tmp/fix-causalml-install.sh
+RUN chmod +x /tmp/fix-causalml-install.sh && /tmp/fix-causalml-install.sh || echo "Installation de causalml échouée - l'application fonctionnera sans ce package"
 
 # Multi-stage build for smaller final image
 FROM python:3.9-slim AS runtime
