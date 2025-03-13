@@ -41,7 +41,7 @@ RUN grep -v "plotly\|dash" requirements.txt > requirements-filtered.txt \
     && pip install --no-cache-dir -r web-deps.txt \
     && cat requirements-filtered.txt | grep -v "^#" | grep "^tensorflow\|^keras\|^torch\|^transformers\|^xgboost\|^lightgbm\|^catboost" > ml-deps.txt \
     && pip install --no-cache-dir -r ml-deps.txt \
-    && cat requirements-filtered.txt | grep -v "^#" | grep -v "^numpy\|^pandas\|^scipy\|^scikit-learn\|^joblib\|^matplotlib\|^seaborn\|^requests\|^psycopg2\|^redis\|^psutil\|^flask\|^python-dotenv\|^gunicorn\|^tensorflow\|^keras\|^torch\|^transformers\|^xgboost\|^lightgbm\|^catboost\|^causalml" > other-deps.txt \
+    && cat requirements-filtered.txt | grep -v "^#" | grep -v "^numpy\|^pandas\|^scipy\|^scikit-learn\|^joblib\|^matplotlib\|^seaborn\|^requests\|^psycopg2\|^redis\|^psutil\|^flask\|^python-dotenv\|^gunicorn\|^tensorflow\|^keras\|^torch\|^transformers\|^xgboost\|^lightgbm\|^catboost\|^causalml\|^econml" > other-deps.txt \
     && pip install --no-cache-dir -r other-deps.txt || true \
     && pip install --no-cache-dir prometheus_client>=0.16.0
 
