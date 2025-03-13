@@ -48,7 +48,13 @@ SCRIPT_PATH=$(find "$TARGET_DIR" -name "start_daily_analysis.py" -type f | head 
 
 if [ -n "$SCRIPT_PATH" ]; then
     echo "Script start_daily_analysis.py trouvé à l'emplacement: $SCRIPT_PATH"
-    cp -v "$SCRIPT_PATH" "$TARGET_DIR" || echo "Échec de copie: start_daily_analysis.py"
+    # Vérifier si le chemin trouvé est différent du chemin cible avant de copier
+    TARGET_PATH="$TARGET_DIR/start_daily_analysis.py"
+    if [ "$SCRIPT_PATH" != "$TARGET_PATH" ] && [ "$(realpath $SCRIPT_PATH)" != "$(realpath $TARGET_PATH)" ]; then
+        cp -v "$SCRIPT_PATH" "$TARGET_DIR" || echo "Échec de copie: start_daily_analysis.py"
+    else
+        echo "Pas besoin de copier start_daily_analysis.py car il est déjà à l'emplacement cible"
+    fi
 else
     echo "ATTENTION: Le script start_daily_analysis.py n'a pas été trouvé!"
     echo "Création d'un script temporaire..."

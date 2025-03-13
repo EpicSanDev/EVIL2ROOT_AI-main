@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+
+{% block title %}Profil Utilisateur - EVIL2ROOT Trading Bot{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="row">
+        <div class="col-lg-3">
+            <!-- Carte de profil -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-body text-center">
+                    <div class="profile-image mb-3">
+                        {% if current_user.profile_image %}
+                            <img src="{{ url_for('static', filename='uploads/' + current_user.profile_image) }}" alt="{{ current_user.username }}" class="rounded-circle" width="100" height="100">
+                        {% else %}
+                            <div class="profile-avatar">
+                                <i class="fas fa-user-circle fa-5x"></i>
+                            </div>
+                        {% endif %}
+                    </div>
+                    <h4 class="mb-1">{{ current_user.username }}</h4>
+                    <p class="text-muted">{{ current_user.email }}</p>
+
+                    <div class="mt-3 badge-container">
+                        <span class="badge bg-primary p-2">{{ current_user.subscription_type|capitalize }}</span>
+                        {% if current_user.is_subscription_active() %}
+                            <span class="badge bg-success p-2">Actif</span>
+                        {% else %}
+                            <span class="badge bg-danger p-2">Expiré</span>
+                        {% endif %}
+                    </div>
+
+                    {% if current_user.subscription_expiry and current_user.subscription_type != 'free' %}
+                        <div class="mt-3">
+                            <p class="mb-0 small">Expiration de l'abonnement</p>
+                            <p class="small text-muted">{{ current_user.subscription_expiry.strftime('%d/%m/%Y') }}</p>
+                            <p class="mb-0 small">Jours restants: {{ current_user.get_subscription_days_left() }}</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Actions de profil -->
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <h5 class="card-title mb-3">Actions</h5>
+                    <div class="d-grid gap-2">
+                        <a href="#" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#uploadPhotoModal">
+                            <i class="fas fa-camera me-2"></i>Changer photo
+                        </a>
+                        <a href="#" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#changePasswordModal">
+                            <i class="fas fa-key me-2"></i>Changer mot de passe
+                        </a>
+                        {% if current_user.subscription_type == 'free' %}
+                            <a href="{{ url_for('main.settings') }}#subscription" class="btn btn-sm btn-primary">
+                                <i class="fas fa-crown me-2"></i>Passer à Premium
+                            </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-9">
+            <!-- Informations du compte -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white py-3">
+                    <h5 class="card-title mb-0">Informations du compte</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label class="form-label">Nom d'utilisateur</label>
+                                <input type="text" class="form-control" value="{{ current_user.username }}" readonly>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label class="form-label">Email</label>
+                                <input type="email" class="form-control" value="{{ current_user.email }}" readonly>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label class="form-label">Prénom</label>
+                                <input type="text" class="form-control" value="{{ current_user.first_name or '' }}" id="firstName">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label class="form-label">Nom</label>
+                                <input type="text" class="form-control" value="{{ current_user.last_name or '' }}" id="lastName">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label class="form-label">ID Telegram</label>
+                                <input type="text" class="form-control" value="{{ current_user.telegram_id or '' }}" id="telegramId">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label class="form-label">Compte créé le</label>
+                                <input type="text" class="form-control" value="{{ current_user.created_at.strftime('%d/%m/%Y') }}" readonly>
+                            </div>
+                        </div>
+                        <div class="col-12 text-end">
+                            <button type="button" class="btn btn-primary" id="saveProfileBtn">
+                                <i class="fas fa-save me-2"></i>Enregistrer les modifications
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Activité récente -->
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white py-3">
+                    <h5 class="card-title mb-0">Activité récente</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Activité</th>
+                                    <th>État</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>{{ current_user.last_login.strftime('%d/%m/%Y %H:%M') if current_user.last_login else 'N/A' }}</td>
+                                    <td>Dernière connexion</td>
+                                    <td><span class="badge bg-success">Réussie</span></td>
+                                </tr>
+                                <!-- Les données d'activité seraient normalement chargées dynamiquement -->
+                                <tr>
+                                    <td colspan="3" class="text-center py-4">
+                                        <p class="text-muted mb-0">L'historique d'activité sera disponible prochainement</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal pour changer la photo de profil -->
+<div class="modal fade" id="uploadPhotoModal" tabindex="-1" aria-labelledby="uploadPhotoModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="uploadPhotoModalLabel">Changer la photo de profil</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form action="{{ url_for('main.upload_profile_image') }}" method="post" enctype="multipart/form-data" id="uploadPhotoForm">
+                    <div class="mb-3">
+                        <label for="profileImage" class="form-label">Sélectionnez une image</label>
+                        <input class="form-control" type="file" id="profileImage" name="profile_image" accept="image/*">
+                        <div class="form-text">Format recommandé: JPG ou PNG, taille maximale 2 Mo.</div>
+                    </div>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">Télécharger</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal pour changer le mot de passe -->
+<div class="modal fade" id="changePasswordModal" tabindex="-1" aria-labelledby="changePasswordModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="changePasswordModalLabel">Changer le mot de passe</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form action="{{ url_for('auth.change_password') }}" method="post" id="changePasswordForm">
+                    <div class="mb-3">
+                        <label for="currentPassword" class="form-label">Mot de passe actuel</label>
+                        <input type="password" class="form-control" id="currentPassword" name="current_password" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="newPassword" class="form-label">Nouveau mot de passe</label>
+                        <input type="password" class="form-control" id="newPassword" name="new_password" required>
+                        <div class="form-text">Le mot de passe doit contenir au moins 8 caractères.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="confirmPassword" class="form-label">Confirmer le nouveau mot de passe</label>
+                        <input type="password" class="form-control" id="confirmPassword" name="confirm_password" required>
+                    </div>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">Mettre à jour le mot de passe</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Gestion du formulaire de profil
+        const saveProfileBtn = document.getElementById('saveProfileBtn');
+        if (saveProfileBtn) {
+            saveProfileBtn.addEventListener('click', function() {
+                const firstName = document.getElementById('firstName').value;
+                const lastName = document.getElementById('lastName').value;
+                const telegramId = document.getElementById('telegramId').value;
+                
+                // Envoi des données via une requête AJAX
+                fetch('{{ url_for("main.update_profile") }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token() }}'
+                    },
+                    body: JSON.stringify({
+                        first_name: firstName,
+                        last_name: lastName,
+                        telegram_id: telegramId
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Afficher un message de succès
+                        const alertHtml = `
+                            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                                <i class="fas fa-check-circle me-2"></i>${data.message}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                            </div>
+                        `;
+                        document.querySelector('.container').insertAdjacentHTML('afterbegin', alertHtml);
+                    } else {
+                        // Afficher un message d'erreur
+                        const alertHtml = `
+                            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                                <i class="fas fa-exclamation-circle me-2"></i>${data.message}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                            </div>
+                        `;
+                        document.querySelector('.container').insertAdjacentHTML('afterbegin', alertHtml);
+                    }
+                })
+                .catch(error => {
+                    console.error('Erreur:', error);
+                });
+            });
+        }
+    });
+</script>
+{% endblock %} 

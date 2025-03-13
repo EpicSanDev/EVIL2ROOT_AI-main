@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="EVIL2ROOT AI-Powered Trading Dashboard - Login">
-    <title>Connexion - EVIL2ROOT Trading Bot</title>
+    <meta name="description" content="EVIL2ROOT AI-Powered Trading Dashboard - Inscription">
+    <title>Inscription - EVIL2ROOT Trading Bot</title>
     
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/favicon.svg') }}">
@@ -29,41 +29,41 @@
             justify-content: center;
         }
         
-        .login-container {
+        .register-container {
             background: white;
             border-radius: var(--radius-md);
             box-shadow: var(--shadow-lg);
             width: 100%;
-            max-width: 400px;
+            max-width: 500px;
             padding: 40px;
             text-align: center;
         }
         
-        .login-header {
+        .register-header {
             margin-bottom: 30px;
         }
         
-        .login-logo {
+        .register-logo {
             display: flex;
             flex-direction: column;
             align-items: center;
             margin-bottom: 20px;
         }
         
-        .login-logo img {
+        .register-logo img {
             width: 60px;
             height: 60px;
             margin-bottom: 10px;
         }
         
-        .login-logo h1 {
+        .register-logo h1 {
             font-size: 1.5rem;
             font-weight: 700;
             margin: 0;
             color: var(--primary-color);
         }
         
-        .login-form {
+        .register-form {
             text-align: left;
         }
         
@@ -92,21 +92,6 @@
             outline: none;
         }
         
-        .form-check {
-            display: flex;
-            align-items: center;
-            margin-bottom: 20px;
-        }
-        
-        .form-check-input {
-            margin-right: 8px;
-        }
-        
-        .form-check-label {
-            font-size: 0.9rem;
-            color: var(--text-muted);
-        }
-        
         .btn {
             display: inline-block;
             padding: 12px 24px;
@@ -125,31 +110,18 @@
             background: var(--primary-dark);
         }
         
-        .forgot-password {
-            display: block;
-            text-align: center;
-            margin-top: 20px;
-            font-size: 0.9rem;
-            color: var(--text-muted);
-            text-decoration: none;
-        }
-        
-        .forgot-password:hover {
-            text-decoration: underline;
-        }
-        
-        .register-link {
+        .login-link {
             margin-top: 20px;
             font-size: 0.9rem;
         }
         
-        .register-link a {
+        .login-link a {
             color: var(--primary-color);
             text-decoration: none;
             font-weight: 600;
         }
         
-        .register-link a:hover {
+        .login-link a:hover {
             text-decoration: underline;
         }
         
@@ -172,6 +144,13 @@
             border: 1px solid rgba(25, 135, 84, 0.2);
         }
         
+        .form-text {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-top: 5px;
+        }
+        
+        /* Styles pour les validations de formulaire */
         .invalid-feedback {
             display: block;
             color: #dc3545;
@@ -180,15 +159,14 @@
         }
     </style>
 </head>
-
 <body>
-    <div class="login-container">
-        <div class="login-header">
-            <div class="login-logo">
+    <div class="register-container">
+        <div class="register-header">
+            <div class="register-logo">
                 <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="EVIL2ROOT Logo">
                 <h1>EVIL2ROOT Trading Bot</h1>
             </div>
-            <p>Connectez-vous pour accéder à votre tableau de bord</p>
+            <p>Créez votre compte pour accéder à la plateforme</p>
         </div>
         
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -199,13 +177,13 @@
             {% endif %}
         {% endwith %}
         
-        <div class="login-form">
-            <form method="POST" action="{{ url_for('auth.login') }}">
+        <div class="register-form">
+            <form method="POST" action="{{ url_for('auth.register') }}">
                 {{ form.hidden_tag() }}
                 
                 <div class="form-group">
                     {{ form.username.label }}
-                    {{ form.username(class="form-control", placeholder="Entrez votre nom d'utilisateur") }}
+                    {{ form.username(class="form-control") }}
                     {% if form.username.errors %}
                         {% for error in form.username.errors %}
                             <div class="invalid-feedback">{{ error }}</div>
@@ -214,8 +192,19 @@
                 </div>
                 
                 <div class="form-group">
+                    {{ form.email.label }}
+                    {{ form.email(class="form-control") }}
+                    {% if form.email.errors %}
+                        {% for error in form.email.errors %}
+                            <div class="invalid-feedback">{{ error }}</div>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+                
+                <div class="form-group">
                     {{ form.password.label }}
-                    {{ form.password(class="form-control", placeholder="Entrez votre mot de passe") }}
+                    {{ form.password(class="form-control") }}
+                    <div class="form-text">Le mot de passe doit contenir au moins 8 caractères.</div>
                     {% if form.password.errors %}
                         {% for error in form.password.errors %}
                             <div class="invalid-feedback">{{ error }}</div>
@@ -223,21 +212,33 @@
                     {% endif %}
                 </div>
                 
-                <div class="form-check">
-                    {{ form.remember_me(class="form-check-input") }}
-                    {{ form.remember_me.label(class="form-check-label") }}
+                <div class="form-group">
+                    {{ form.password2.label }}
+                    {{ form.password2(class="form-control") }}
+                    {% if form.password2.errors %}
+                        {% for error in form.password2.errors %}
+                            <div class="invalid-feedback">{{ error }}</div>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+                
+                <div class="form-group">
+                    {{ form.telegram_id.label }}
+                    {{ form.telegram_id(class="form-control") }}
+                    <div class="form-text">Facultatif - Utilisé pour les notifications par Telegram</div>
+                    {% if form.telegram_id.errors %}
+                        {% for error in form.telegram_id.errors %}
+                            <div class="invalid-feedback">{{ error }}</div>
+                        {% endfor %}
+                    {% endif %}
                 </div>
                 
                 {{ form.submit(class="btn") }}
-                
-                <a href="{{ url_for('auth.reset_password_request') }}" class="forgot-password">
-                    Mot de passe oublié?
-                </a>
             </form>
         </div>
         
-        <div class="register-link">
-            Vous n'avez pas de compte? <a href="{{ url_for('auth.register') }}">Inscrivez-vous</a>
+        <div class="login-link">
+            Vous avez déjà un compte? <a href="{{ url_for('auth.login') }}">Connectez-vous</a>
         </div>
     </div>
     
