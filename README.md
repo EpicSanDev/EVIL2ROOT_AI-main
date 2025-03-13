@@ -18,11 +18,54 @@ apprentissage par renforcement et analyse du sentiment de marché.**
 
 ## 🌟 Points Forts
 
-- **Intelligence Artificielle Avancée** : Modèles de deep learning LSTM, GRU et Transformers pour la prédiction des prix
-- **Validation Multi-niveaux** : Chaque décision de trading est validée par un système IA secondaire utilisant Claude 3.7
-- **Ensemble Sophistiqué** : Combinaison de modèles d'analyse technique, fondamentale et d'IA
+- **Intelligence Artificielle Avancée** : Utilisation de modèles d'ensemble combinant apprentissage profond, réseaux de neurones et LLM pour des analyses multidimensionnelles
+- **Analyse de Sentiment Multi-sources** : Traitement en temps réel des actualités, médias sociaux et rapports financiers
+- **Architecture Évolutive** : Système modulaire facilement extensible et adaptable aux changements de marché
+- **Backtesting Robuste** : Simulation précise sur données historiques avec ajustement pour la liquidité et le slippage
+- **Performance Optimisée** : Trading haute fréquence avec latence minimisée et exécution efficace
+- **Sécurité Renforcée** : Chiffrement bout-en-bout, authentification à deux facteurs et audit de sécurité
+- **Multi-exchange Support** : Compatible avec les principales plateformes d'échange (Binance, Coinbase, FTX, etc.)
+- **Multi-actifs** : Trading sur cryptomonnaies, actions, forex, matières premières et dérivés
+- **API Complète** : Intégration facile avec des systèmes externes via une API RESTful documentée
 - **Gestion Dynamique des Risques** : Calcul intelligent des tailles de position et niveaux stop-loss/take-profit
 - **Surveillance en Temps Réel** : Interface web intuitive avec tableaux de bord complets et alertes instantanées
+
+## 🚀 Architecture de Déploiement
+
+Le bot utilise une architecture optimisée pour DigitalOcean qui sépare le build de l'exécution :
+
+```mermaid
+graph LR
+    A[GitHub] -->|Push| B[GitHub Actions]
+    B -->|Copie le code| C[Droplet Builder]
+    C -->|Build| D[Image Docker]
+    D -->|Push| E[Container Registry]
+    E -->|Deploy| F[App Platform]
+```
+
+### Configuration initiale (à faire UNE SEULE FOIS)
+
+Pour mettre en place l'environnement de build :
+
+```bash
+# Exécuter UNE SEULE FOIS pour configurer l'environnement
+./scripts/setup-builder-droplet.sh VOTRE_TOKEN_DIGITALOCEAN
+```
+
+Ce script va :
+1. Créer une Droplet DigitalOcean dédiée au build
+2. Configurer un Container Registry
+3. Préparer les secrets pour GitHub Actions
+
+### Workflow automatique à chaque push
+
+Une fois la configuration initiale terminée, à chaque push sur la branche main :
+
+1. GitHub Actions déclenche le build sur la Droplet existante
+2. L'image Docker est construite et poussée vers le Container Registry
+3. App Platform déploie automatiquement la nouvelle version
+
+⚠️ **Important** : Le script `setup-builder-droplet.sh` ne doit être exécuté qu'une seule fois lors de la configuration initiale.
 
 ---
 
@@ -288,120 +331,4 @@ Les principales configurations se trouvent dans le fichier `.env` :
 
 ### 🧮 Configuration des Modèles
 Personnalisez les paramètres des modèles dans les fichiers de configuration dédiés :
-- `config/models/price_prediction.json` : Configuration des modèles de prix
-- `config/models/sentiment_analysis.json` : Paramètres d'analyse de sentiment
-- `config/models/risk_management.json` : Règles de gestion des risques
-
-### 🚦 Stratégies de Trading
-Configurez vos stratégies dans `config/strategies/` :
-- Paramètres d'entrée et de sortie
-- Combinaisons d'indicateurs
-- Règles de validation de signaux
-- Périodes d'analyse
-
----
-
-## 📊 Visualisation et Surveillance
-
-### 📈 Dashboard Temps Réel
-- Graphiques interactifs avec indicateurs techniques
-- Vue consolidée du portefeuille et des performances
-- Analyse de corrélation entre actifs
-- Signaux de trading récents et historiques
-
-### 🔔 Système de Notifications
-- Alertes Telegram pour chaque transaction
-- Rapports quotidiens de performance
-- Notifications d'événements critiques
-- Alertes de risque personnalisables
-
-### 📉 Métriques de Performance
-- Ratio de Sharpe et Sortino
-- Drawdown maximum
-- Gain moyen vs perte moyenne
-- Taux de réussite par stratégie
-- Performance par type d'actif
-
-<div align="center">
-  <img src="https://via.placeholder.com/800x400?text=EVIL2ROOT+Performance+Metrics" alt="Métriques de performance"/>
-  <p><em>Métriques de performance et analyse de risque</em></p>
-</div>
-
----
-
-## 📚 Documentation
-
-- [📖 Guide Utilisateur](docs/USER_GUIDE.md) - Guide complet d'utilisation du système
-- [🏗️ Architecture du Système](docs/ARCHITECTURE.md) - Documentation technique détaillée
-- [🔌 Documentation API](docs/api/) - Référence des endpoints API
-- [🚀 Guide de Déploiement](docs/DEPLOYMENT.md) - Instructions de déploiement détaillées
-- [☸️ Configuration Kubernetes](docs/KUBERNETES.md) - Guide de déploiement sur Kubernetes
-- [🧠 Documentation des Modèles IA](docs/ENSEMBLE_AI_DOCUMENTATION.md) - Détails sur les modèles d'IA
-
-Pour une documentation spécifique aux modèles et stratégies, consultez le répertoire [docs/](docs/).
-
----
-
-## 💻 Développement
-
-### 🛠️ Installation pour le Développement
-```bash
-# Créer un environnement virtuel
-python -m venv venv
-source venv/bin/activate
-
-# Installer les dépendances de développement
-pip install -r requirements-dev.txt
-
-# Installer le package en mode développement
-pip install -e .
-```
-
-### 🧪 Exécution des Tests
-```bash
-# Exécuter tous les tests
-pytest
-
-# Exécuter les tests unitaires uniquement
-pytest tests/unit/
-
-# Exécuter avec couverture de code
-pytest --cov=src
-```
-
-### 🔄 Flux de Travail Git
-1. Créez une branche pour votre fonctionnalité :
-   ```bash
-   git checkout -b feature/ma-fonctionnalite
-   ```
-
-2. Développez et testez votre code
-
-3. Soumettez une pull request vers la branche main
-
-Pour plus d'informations, consultez [CONTRIBUTING.md](docs/CONTRIBUTING.md).
-
----
-
-## 📝 Licence
-
-Ce projet est distribué sous la licence MIT. Voir le fichier [LICENSE](LICENSE) pour plus de détails.
-
----
-
-## ⚠️ Avertissement
-
-**AVIS DE RISQUE** : Le trading automatisé comporte des risques financiers substantiels. Ce logiciel est fourni à des fins éducatives et de recherche uniquement. Les performances passées ne garantissent pas les résultats futurs. Utilisez à vos propres risques.
-
-**REMARQUE IMPORTANTE** : Ce système n'est pas conçu pour être un conseiller financier. Toujours consulter un professionnel qualifié avant de prendre des décisions d'investissement.
-
----
-
-<div align="center">
-  <p>Développé avec ❤️ par l'équipe EVIL2ROOT</p>
-  <p>
-    <a href="https://github.com/EpicSanDev/EVIL2ROOT_AI-main/issues">Signaler un problème</a> •
-    <a href="docs/CONTRIBUTING.md">Contribuer</a> •
-    <a href="docs/CHANGELOG.md">Changelog</a>
-  </p>
-</div> 
+- `config/models/price_prediction.json`

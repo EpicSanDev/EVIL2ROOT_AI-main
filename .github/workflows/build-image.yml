@@ -1,0 +1,50 @@
+name: Build and Push Docker Image
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Set up SSH key
+        uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.BUILDER_SSH_KEY }}
+
+      - name: Add SSH known hosts
+        run: |
+          mkdir -p ~/.ssh
+          echo '${{ secrets.BUILDER_HOST_KEY }}' >> ~/.ssh/known_hosts
+
+      - name: Copy repository to builder droplet
+        run: |
+          rsync -avz --exclude='.git' ./ root@${{ secrets.BUILDER_IP }}:/opt/builder/
+
+      - name: Build Docker image on builder droplet
+        run: |
+          ssh root@${{ secrets.BUILDER_IP }} 'cd /opt/builder && docker build -t registry.digitalocean.com/evil2root-registry/evil2root-ai:latest .'
+
+      - name: Push image to DigitalOcean Container Registry
+        run: |
+          ssh root@${{ secrets.BUILDER_IP }} 'docker push registry.digitalocean.com/evil2root-registry/evil2root-ai:latest'
+
+      - name: Update App Platform deployment
+        run: |
+          doctl apps list --format ID,Spec.Name | grep evil2root-ai
+          APP_ID=$(doctl apps list --format ID,Spec.Name | grep evil2root-ai | awk '{print $1}')
+          if [ -n "$APP_ID" ]; then
+            doctl apps update $APP_ID --format ID --wait
+            echo "App deployment triggered for $APP_ID"
+          else
+            echo "App not found, please deploy manually first"
+          fi 

@@ -2,18 +2,14 @@ name: evil2root-ai-trading
 region: fra
 services:
   - name: web
-    dockerfile_path: Dockerfile
-    github:
-      branch: main
-      deploy_on_push: true
-      repo: votre-compte/Evil2Root_TRADING
-    build_command: chmod +x docker/fix-causalml-install.sh docker/fix-finbert-install.sh
+    image:
+      registry_type: DOCR
+      repository: evil2root-registry/evil2root-ai
+      tag: latest
     run_command: /app/digitalocean-entrypoint.sh gunicorn
     http_port: 8080
     instance_count: 1
     instance_size_slug: professional-1x
-    build_config:
-      memory: 8Gi
     healthcheck:
       http_path: /health
       initial_delay_seconds: 60
@@ -60,16 +56,13 @@ databases:
 
 workers:
   - name: market-scheduler
-    dockerfile_path: Dockerfile
-    github:
-      branch: main
-      repo: votre-compte/Evil2Root_TRADING
-    build_command: chmod +x docker/fix-causalml-install.sh docker/fix-finbert-install.sh
+    image:
+      registry_type: DOCR
+      repository: evil2root-registry/evil2root-ai
+      tag: latest
     run_command: /app/digitalocean-entrypoint.sh scheduler
     instance_count: 1
     instance_size_slug: basic-xs
-    build_config:
-      memory: 8Gi
     envs:
       - key: FLASK_ENV
         value: production
@@ -97,17 +90,14 @@ workers:
 
 jobs:
   - name: daily-analysis
-    dockerfile_path: Dockerfile
-    github:
-      branch: main
-      repo: votre-compte/Evil2Root_TRADING
-    build_command: chmod +x docker/fix-causalml-install.sh docker/fix-finbert-install.sh
+    image:
+      registry_type: DOCR
+      repository: evil2root-registry/evil2root-ai
+      tag: latest
     run_command: /app/digitalocean-entrypoint.sh analysis-bot
     kind: CRON
     schedule: "0 0 * * *"  # Exécuter tous les jours à minuit
     instance_size_slug: basic-xs
-    build_config:
-      memory: 8Gi
     envs:
       - key: FLASK_ENV
         value: production
