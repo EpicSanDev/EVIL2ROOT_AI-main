@@ -48,23 +48,49 @@ def login():
         username = request.form.get('username')
         password = request.form.get('password')
         
-        # Get admin credentials from environment variables
-        admin_username = os.environ.get('ADMIN_USERNAME', 'admin')
-        admin_password = os.environ.get('ADMIN_PASSWORD', 'password')
+        # Validation des entrées
+        if not username or not password:
+            flash('Veuillez fournir un nom d\'utilisateur et un mot de passe', 'error')
+            return render_template('login.html')
         
-        # Simple authentication check
-        if username == admin_username and password == admin_password:
-            # Create user object and log them in
+        # Vérification des tentatives de connexion
+        from app import check_login_attempts
+        if not check_login_attempts(username):
+            flash('Trop de tentatives de connexion échouées. Compte temporairement bloqué. Veuillez réessayer plus tard.', 'error')
+            return render_template('login.html', is_locked=True)
+        
+        # Tentative d'authentification
+        # Seul l'administrateur est autorisé pour le moment
+        admin_username = os.environ.get('ADMIN_USERNAME', 'admin')
+        if username == admin_username:
+            # Chargement de l'utilisateur
             user = User(1, admin_username)
-            login_user(user, remember=True)
             
-            # Redirect to the requested page or dashboard
-            next_page = request.args.get('next')
-            if next_page and next_page.startswith('/'):
-                return redirect(next_page)
-            return redirect(url_for('main.dashboard'))
+            # Vérification du mot de passe
+            # Nous appelons load_user pour obtenir l'objet utilisateur avec le hash et le sel
+            from app import load_user
+            admin_user = load_user('1')
+            
+            if admin_user and admin_user.verify_password(password):
+                # Authentification réussie
+                login_user(admin_user, remember=True)
+                
+                # Réinitialiser le compteur de tentatives de connexion
+                check_login_attempts(username, success=True)
+                
+                # Redirection vers la page demandée ou le tableau de bord
+                next_page = request.args.get('next')
+                if next_page and next_page.startswith('/'):
+                    return redirect(next_page)
+                return redirect(url_for('main.dashboard'))
+            else:
+                # Authentification échouée
+                flash('Nom d\'utilisateur ou mot de passe incorrect', 'error')
+                # Nous ne réinitialisons pas le compteur de tentatives
         else:
-            flash('Invalid username or password', 'error')
+            # Utilisateur non trouvé
+            flash('Nom d\'utilisateur ou mot de passe incorrect', 'error')
+            # Nous utilisons le même message pour ne pas révéler si l'utilisateur existe
     
     return render_template('login.html')
 
@@ -72,7 +98,7 @@ def login():
 @login_required
 def logout():
     logout_user()
-    flash('You have been logged out successfully', 'success')
+    flash('Vous avez été déconnecté avec succès', 'success')
     return redirect(url_for('main.login'))
 
 @main_blueprint.route('/')

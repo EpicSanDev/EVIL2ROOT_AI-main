@@ -1,5 +1,12 @@
 version: '3.8'
 
+x-gpu-runtime: &gpu-runtime
+  # Ce bloc est une référence YAML qui sera utilisée conditionnellement
+  runtime: nvidia
+  environment:
+    - NVIDIA_VISIBLE_DEVICES=all
+    - TF_FORCE_GPU_ALLOW_GROWTH=true
+
 services:
   web:
     build: .
@@ -14,10 +21,32 @@ services:
       - ./logs:/app/logs
       - ./saved_models:/app/saved_models
     env_file:
-      - .env
+      - .env.non-sensitive
+    secrets:
+      - db_user
+      - db_password
+      - secret_key
+      - admin_password
+      - telegram_token
+      - finnhub_api_key
+      - openrouter_api_key
+      - coinbase_api_key
+      - coinbase_webhook_secret
+    environment:
+      - DB_USER_FILE=/run/secrets/db_user
+      - DB_PASSWORD_FILE=/run/secrets/db_password
+      - SECRET_KEY_FILE=/run/secrets/secret_key
+      - ADMIN_PASSWORD_FILE=/run/secrets/admin_password
+      - TELEGRAM_TOKEN_FILE=/run/secrets/telegram_token
+      - FINNHUB_API_KEY_FILE=/run/secrets/finnhub_api_key
+      - OPENROUTER_API_KEY_FILE=/run/secrets/openrouter_api_key
+      - COINBASE_API_KEY_FILE=/run/secrets/coinbase_api_key
+      - COINBASE_WEBHOOK_SECRET_FILE=/run/secrets/coinbase_webhook_secret
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     deploy:
       resources:
@@ -25,6 +54,12 @@ services:
           memory: 4G
         reservations:
           memory: 2G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   analysis-bot:
     build: .
@@ -36,10 +71,22 @@ services:
       - ./logs:/app/logs:rw
       - ./saved_models:/app/saved_models:rw
     env_file:
-      - .env
+      - .env.non-sensitive
+    secrets:
+      - db_user
+      - db_password
+      - admin_password
+      - finnhub_api_key
+    environment:
+      - DB_USER_FILE=/run/secrets/db_user
+      - DB_PASSWORD_FILE=/run/secrets/db_password
+      - ADMIN_PASSWORD_FILE=/run/secrets/admin_password
+      - FINNHUB_API_KEY_FILE=/run/secrets/finnhub_api_key
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     deploy:
       resources:
@@ -60,8 +107,10 @@ services:
     env_file:
       - .env
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     deploy:
       resources:
@@ -82,8 +131,10 @@ services:
     env_file:
       - .env
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: no  # Ce service ne redémarre pas automatiquement
     deploy:
       resources:
@@ -91,10 +142,8 @@ services:
           memory: 16G
         reservations:
           memory: 8G
-    runtime: nvidia
     environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - TF_FORCE_GPU_ALLOW_GROWTH=true
+      - USE_GPU=${USE_GPU:-true}
 
   market-scheduler-force-train:
     build: .
@@ -117,23 +166,30 @@ services:
           memory: 16G
         reservations:
           memory: 8G
-    runtime: nvidia
     environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - TF_FORCE_GPU_ALLOW_GROWTH=true
+      - USE_GPU=${USE_GPU:-true}
 
   db:
     image: postgres:13
     container_name: trading-bot-db
     volumes:
       - postgres_data:/var/lib/postgresql/data/
+    secrets:
+      - db_user
+      - db_password
     environment:
-      - POSTGRES_USER=${DB_USER}
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_USER_FILE=/run/secrets/db_user
+      - POSTGRES_PASSWORD_FILE=/run/secrets/db_password
       - POSTGRES_DB=${DB_NAME}
     ports:
       - "5432:5432"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$(cat /run/secrets/db_user) -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     deploy:
       resources:
         limits:
@@ -147,6 +203,12 @@ services:
     volumes:
       - redis_data:/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     deploy:
       resources:
         limits:
@@ -206,6 +268,27 @@ services:
   #   ports:
   #     - "6006:6006"
   #   restart: unless-stopped
+
+# Définition des secrets
+secrets:
+  db_user:
+    file: ./secrets/db_user.txt
+  db_password:
+    file: ./secrets/db_password.txt
+  secret_key:
+    file: ./secrets/secret_key.txt
+  admin_password:
+    file: ./secrets/admin_password.txt
+  telegram_token:
+    file: ./secrets/telegram_token.txt
+  finnhub_api_key:
+    file: ./secrets/finnhub_api_key.txt
+  openrouter_api_key:
+    file: ./secrets/openrouter_api_key.txt
+  coinbase_api_key:
+    file: ./secrets/coinbase_api_key.txt
+  coinbase_webhook_secret:
+    file: ./secrets/coinbase_webhook_secret.txt
 
 volumes:
   postgres_data:

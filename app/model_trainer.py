@@ -14,47 +14,119 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import optuna
 import concurrent.futures
 
-# Fonction de vérification du GPU
+# Fonction de vérification du GPU améliorée
 def check_gpu_availability():
-    """Vérifie si le GPU est disponible et renvoie les informations de configuration"""
-    gpus = tf.config.list_physical_devices('GPU')
+    """
+    Vérifie si le GPU est disponible et renvoie les informations de configuration.
+    Cette fonction implémente plusieurs méthodes de détection pour plus de robustesse.
+    """
     gpu_info = {
-        'available': len(gpus) > 0,
+        'available': False,
         'devices': [],
-        'memory_details': []
+        'memory_details': [],
+        'detection_method': None
     }
     
-    if gpus:
-        for gpu in gpus:
-            gpu_info['devices'].append(str(gpu))
+    # Méthode 1: Vérification via TensorFlow
+    try:
+        gpus = tf.config.list_physical_devices('GPU')
+        if gpus:
+            gpu_info['available'] = True
+            gpu_info['detection_method'] = 'tensorflow'
             
-            # Configurer la croissance mémoire pour éviter de monopoliser toute la VRAM
-            try:
-                tf.config.experimental.set_memory_growth(gpu, True)
-                gpu_info['memory_growth_enabled'] = True
-            except RuntimeError as e:
-                gpu_info['memory_growth_enabled'] = False
-                gpu_info['memory_growth_error'] = str(e)
-        
-        # Tentative d'obtention d'informations VRAM (uniquement informatif)
+            for gpu in gpus:
+                gpu_info['devices'].append(str(gpu))
+                
+                # Configurer la croissance mémoire pour éviter de monopoliser toute la VRAM
+                try:
+                    tf.config.experimental.set_memory_growth(gpu, True)
+                    gpu_info['memory_growth_enabled'] = True
+                except RuntimeError as e:
+                    gpu_info['memory_growth_enabled'] = False
+                    gpu_info['memory_growth_error'] = str(e)
+    except Exception as e:
+        gpu_info['tf_detection_error'] = str(e)
+    
+    # Méthode 2: Vérification via nvidia-smi (si TensorFlow n'a pas détecté de GPU)
+    if not gpu_info['available']:
+        try:
+            import subprocess
+            result = subprocess.run(['nvidia-smi', '-L'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5)
+            if result.returncode == 0 and result.stdout:
+                gpu_info['available'] = True
+                gpu_info['detection_method'] = 'nvidia-smi'
+                gpus_detected = result.stdout.decode('utf-8').strip().split('\n')
+                gpu_info['devices'] = gpus_detected
+        except Exception as e:
+            gpu_info['smi_detection_error'] = str(e)
+    
+    # Méthode 3: Vérification via CUDA_VISIBLE_DEVICES
+    if not gpu_info['available'] and os.environ.get('CUDA_VISIBLE_DEVICES', None) not in [None, '', '-1']:
+        gpu_info['available'] = True
+        gpu_info['detection_method'] = 'environment_variable'
+        gpu_info['devices'] = [f"GPU from CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES')}"]
+    
+    # Si GPU détecté, essayer d'obtenir plus d'informations via nvidia-smi
+    if gpu_info['available'] and gpu_info['detection_method'] in ['tensorflow', 'nvidia-smi']:
         try:
             import subprocess
             gpu_memory_info = subprocess.check_output(
-                ['nvidia-smi', '--query-gpu=memory.total,memory.free', '--format=csv,nounits,noheader']
+                ['nvidia-smi', '--query-gpu=memory.total,memory.free', '--format=csv,nounits,noheader'],
+                timeout=5
             ).decode('utf-8').strip().split('\n')
             
             for info in gpu_memory_info:
-                total, free = info.split(',')
-                gpu_info['memory_details'].append({
-                    'total_mb': int(total.strip()),
-                    'free_mb': int(free.strip()),
-                    'used_mb': int(total.strip()) - int(free.strip())
-                })
-        except:
-            # Si cette commande échoue, c'est OK (elle est juste informative)
+                if ',' in info:  # S'assurer que le format est correct
+                    total, free = info.split(',')
+                    gpu_info['memory_details'].append({
+                        'total_mb': int(total.strip()),
+                        'free_mb': int(free.strip()),
+                        'used_mb': int(total.strip()) - int(free.strip())
+                    })
+        except Exception:
+            # C'est OK si cette commande échoue, elle est juste informative
             pass
     
     return gpu_info
+
+def configure_gpu_environment(gpu_info):
+    """
+    Configure l'environnement d'exécution en fonction de la disponibilité du GPU.
+    Retourne True si le GPU est correctement configuré et utilisable, False sinon.
+    """
+    if not gpu_info['available']:
+        # Désactiver l'utilisation du GPU en définissant CUDA_VISIBLE_DEVICES à -1
+        os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+        os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'false'
+        return False
+    
+    # GPU disponible, configurer pour une utilisation optimale
+    
+    # Activer la croissance mémoire dynamique pour éviter d'allouer toute la VRAM immédiatement
+    os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
+    
+    # Configuration spécifique pour TensorFlow
+    try:
+        gpus = tf.config.list_physical_devices('GPU')
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+    except Exception:
+        pass  # Ignorer les erreurs car cette étape peut être redondante avec check_gpu_availability
+    
+    # Configuration pour limiter la mémoire utilisée si spécifiée
+    memory_limit_mb = os.environ.get('GPU_MEMORY_LIMIT_MB', None)
+    if memory_limit_mb and memory_limit_mb.isdigit():
+        try:
+            gpus = tf.config.list_physical_devices('GPU')
+            for gpu in gpus:
+                tf.config.experimental.set_virtual_device_configuration(
+                    gpu,
+                    [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=int(memory_limit_mb))]
+                )
+        except Exception:
+            pass
+    
+    return True
 
 # Try to import TFKerasPruningCallback, but provide a fallback if it's not available
 try:
@@ -108,8 +180,11 @@ class ModelTrainer:
         gpu_info = check_gpu_availability()
         self.gpu_available = gpu_info['available']
         
+        # Configurer l'environnement en fonction de la disponibilité du GPU
+        self.gpu_usable = configure_gpu_environment(gpu_info)
+        
         if self.gpu_available:
-            logger.info(f"GPU détecté! Nombre de GPUs: {len(gpu_info['devices'])}")
+            logger.info(f"GPU détecté via {gpu_info.get('detection_method', 'inconnu')}! Nombre de GPUs: {len(gpu_info['devices'])}")
             for i, device in enumerate(gpu_info['devices']):
                 logger.info(f"  GPU #{i}: {device}")
             
@@ -126,13 +201,18 @@ class ModelTrainer:
                               gpu_info.get('memory_growth_error', 'inconnu'))
         else:
             logger.warning("Aucun GPU détecté! L'entraînement sera plus lent.")
-            logger.warning("Si vous avez bien une RTX 2070 SUPER, vérifiez l'installation des pilotes NVIDIA")
+            if gpu_info.get('tf_detection_error'):
+                logger.warning(f"Erreur TensorFlow: {gpu_info.get('tf_detection_error')}")
+            if gpu_info.get('smi_detection_error'):
+                logger.warning(f"Erreur nvidia-smi: {gpu_info.get('smi_detection_error')}")
+            logger.warning("Si vous avez bien une carte compatible CUDA, vérifiez l'installation des pilotes NVIDIA")
             logger.warning("et exécutez le script install_nvidia_docker.sh")
         
         # Optimization settings
         self.max_optimization_trials = int(os.environ.get('MAX_OPTIMIZATION_TRIALS', 25))
         self.optimization_timeout = int(os.environ.get('OPTIMIZATION_TIMEOUT', 3600))  # 1 hour default
-        self.use_gpu = self.gpu_available and os.environ.get('USE_GPU', 'true').lower() == 'true'
+        # Utiliser le GPU seulement si disponible, correctement configuré, et activé par l'utilisateur
+        self.use_gpu = self.gpu_usable and os.environ.get('USE_GPU', 'true').lower() == 'true'
         
         # Performance tracking
         self.model_metrics = {}

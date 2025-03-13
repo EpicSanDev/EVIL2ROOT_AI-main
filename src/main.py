@@ -17,18 +17,8 @@ from pathlib import Path
 # Add the src directory to the Python path to allow imports
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-def setup_logging():
-    """Configure logging for the application."""
-    logging_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    logging.basicConfig(
-        level=logging.INFO,
-        format=logging_format,
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler('logs/trading_bot.log')
-        ]
-    )
-    return logging.getLogger('main')
+# Importer notre utilitaire de configuration des logs
+from src.utils.log_config import setup_logging
 
 def parse_arguments():
     """Parse command line arguments."""
@@ -48,10 +38,15 @@ def parse_arguments():
 def main():
     """Main entry point for the application."""
     args = parse_arguments()
-    logger = setup_logging()
+    
+    # Utiliser notre utilitaire de configuration des logs
+    logger = setup_logging('main', 'trading_bot.log')
     
     if args.debug:
-        logging.getLogger().setLevel(logging.DEBUG)
+        # Configurer le niveau de log en mode debug
+        for handler in logger.handlers:
+            handler.setLevel(logging.DEBUG)
+        logger.setLevel(logging.DEBUG)
     
     logger.info("Starting EVIL2ROOT Trading Bot...")
     logger.info(f"Mode: {args.mode}")

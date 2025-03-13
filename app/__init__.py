@@ -1,7 +1,10 @@
 import os
 import logging
+import datetime
+import hashlib
+import time
 from logging.handlers import RotatingFileHandler
-from flask import Flask
+from flask import Flask, request, abort
 from dotenv import load_dotenv
 from flask_login import LoginManager
 
@@ -20,40 +23,156 @@ data_manager = None
 position_manager = None
 login_manager = LoginManager()
 
-# Simple user class for Flask-Login
+# Dictionary to store failed login attempts
+login_attempts = {}
+# Lock duration in seconds (15 minutes)
+LOCK_DURATION = 15 * 60
+# Maximum number of failed attempts before locking
+MAX_ATTEMPTS = 5
+
+# Secure user class with password hashing
 class User:
-    def __init__(self, id, username):
+    def __init__(self, id, username, password_hash=None, salt=None):
         self.id = id
         self.username = username
+        self.password_hash = password_hash
+        self.salt = salt
         self.is_authenticated = True
         self.is_active = True
         self.is_anonymous = False
     
     def get_id(self):
         return str(self.id)
+    
+    @staticmethod
+    def hash_password(password, salt=None):
+        """Hash a password with a randomly generated salt"""
+        if salt is None:
+            salt = os.urandom(32).hex()  # Generate a random salt
+        
+        # Use a secure hash algorithm with key stretching
+        key = hashlib.pbkdf2_hmac(
+            'sha256',                  # The hash algorithm
+            password.encode('utf-8'),  # Convert password to bytes
+            salt.encode('utf-8'),      # Salt as bytes
+            100000,                    # Number of iterations (key stretching)
+            dklen=128                  # Length of the derived key
+        ).hex()
+        
+        return key, salt
+    
+    def verify_password(self, password):
+        """Verify a password against its hash"""
+        if not self.password_hash or not self.salt:
+            return False
+        
+        # Hash the provided password with the stored salt
+        hash_to_check, _ = self.hash_password(password, self.salt)
+        
+        # Compare in constant time to prevent timing attacks
+        return self.constant_time_compare(hash_to_check, self.password_hash)
+    
+    @staticmethod
+    def constant_time_compare(a, b):
+        """Compare two strings in constant time to prevent timing attacks"""
+        if len(a) != len(b):
+            return False
+        
+        result = 0
+        for x, y in zip(a, b):
+            result |= ord(x) ^ ord(y)
+        
+        return result == 0
 
-# User loader for Flask-Login
+# User loader for Flask-Login with improved security
 @login_manager.user_loader
 def load_user(user_id):
-    # In this simplified version, we just check if it's the admin user
+    # Check for admin user
     if user_id == '1':  # Admin user ID
-        return User(1, os.environ.get('ADMIN_USERNAME', 'admin'))
+        admin_username = os.environ.get('ADMIN_USERNAME', 'admin')
+        admin_password = os.environ.get('ADMIN_PASSWORD', 'admin')
+        
+        # Create admin user with hashed password if not already done
+        admin_user = User(1, admin_username)
+        
+        # Get or create password hash and salt
+        if not hasattr(load_user, 'admin_hash') or not hasattr(load_user, 'admin_salt'):
+            # Only hash on first call to avoid repeated hashing
+            load_user.admin_hash, load_user.admin_salt = User.hash_password(admin_password)
+        
+        admin_user.password_hash = load_user.admin_hash
+        admin_user.salt = load_user.admin_salt
+        
+        return admin_user
+    
     return None
+
+# Fonction pour vérifier les tentatives de connexion et limiter la force brute
+def check_login_attempts(username, success=False):
+    """
+    Vérifier et mettre à jour les tentatives de connexion
+    Retourne True si l'utilisateur peut tenter une connexion, False s'il est bloqué
+    """
+    current_time = time.time()
+    ip_address = request.remote_addr
+    
+    # Clé unique pour l'utilisateur et l'adresse IP
+    key = f"{username}:{ip_address}"
+    
+    # Si la connexion est réussie, réinitialiser les tentatives
+    if success:
+        if key in login_attempts:
+            del login_attempts[key]
+        return True
+    
+    # Vérifier si l'utilisateur est actuellement bloqué
+    if key in login_attempts:
+        attempts, last_attempt_time, is_locked_until = login_attempts[key]
+        
+        # Si l'utilisateur est bloqué, vérifier si la durée du blocage est écoulée
+        if is_locked_until and current_time < is_locked_until:
+            return False
+        
+        # Si le blocage est terminé, réinitialiser
+        if is_locked_until and current_time >= is_locked_until:
+            login_attempts[key] = (0, current_time, None)
+        
+        # Incrémenter le compteur d'échecs
+        attempts += 1
+        
+        # Bloquer après MAX_ATTEMPTS tentatives échouées
+        if attempts >= MAX_ATTEMPTS:
+            login_attempts[key] = (attempts, current_time, current_time + LOCK_DURATION)
+            return False
+        else:
+            login_attempts[key] = (attempts, current_time, None)
+    else:
+        # Première tentative échouée
+        login_attempts[key] = (1, current_time, None)
+    
+    return True
 
 def create_app(testing=False):
     """Create and configure the Flask application."""
     app = Flask(__name__)
     app.config['TESTING'] = testing
     
-    # Set up configuration
-    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev_key')
+    # Set up configuration with secure defaults
+    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', os.urandom(32).hex())
     app.config['DATABASE_URI'] = os.environ.get('DATABASE_URI', 'sqlite:///trading.db')
     
-    # Initialize Flask-Login
+    # Security settings
+    app.config['SESSION_COOKIE_SECURE'] = os.environ.get('FLASK_ENV') == 'production'
+    app.config['SESSION_COOKIE_HTTPONLY'] = True
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+    app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(hours=2)
+    
+    # Initialize Flask-Login with enhanced security
     login_manager.init_app(app)
     login_manager.login_view = 'main.login'
-    login_manager.login_message = 'Please log in to access this page.'
+    login_manager.login_message = 'Veuillez vous connecter pour accéder à cette page.'
     login_manager.login_message_category = 'warning'
+    login_manager.session_protection = 'strong'
     
     # Initialize global objects if not in testing mode
     if not testing:

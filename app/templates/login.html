@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="EVIL2ROOT AI-Powered Trading Dashboard - Login">
-    <title>Login - EVIL2ROOT Trading Bot</title>
+    <title>Connexion - EVIL2ROOT Trading Bot</title>
     
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/favicon.svg') }}">
@@ -124,6 +124,52 @@
             transform: translateY(-3px);
             box-shadow: var(--shadow-md);
         }
+        
+        .login-button:disabled {
+            background: var(--gray-medium);
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .alert {
+            padding: 10px 15px;
+            margin-bottom: 20px;
+            border-radius: var(--radius-sm);
+            font-weight: 500;
+        }
+        
+        .alert.error {
+            background-color: #fee2e2;
+            color: #b91c1c;
+            border: 1px solid #ef4444;
+        }
+        
+        .alert.success {
+            background-color: #dcfce7;
+            color: #166534;
+            border: 1px solid #22c55e;
+        }
+        
+        .alert.warning {
+            background-color: #fff7ed;
+            color: #c2410c;
+            border: 1px solid #fb923c;
+        }
+        
+        .error-icon {
+            font-size: 3rem;
+            color: #ef4444;
+            margin-bottom: 15px;
+        }
+        
+        .lockout-message {
+            background-color: #fee2e2;
+            border-radius: var(--radius-sm);
+            padding: 20px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
     </style>
 </head>
 
@@ -134,8 +180,8 @@
                 <span class="login-logo-text">EVIL2ROOT</span>
                 <span class="login-logo-badge">AI-TRADING</span>
             </div>
-            <h1 class="login-title">Trading Bot Dashboard</h1>
-            <p class="login-subtitle">Sign in to access your dashboard</p>
+            <h1 class="login-title">Tableau de bord du Trading Bot</h1>
+            <p class="login-subtitle">Connectez-vous pour accéder à votre tableau de bord</p>
         </div>
         
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -148,19 +194,45 @@
             {% endif %}
         {% endwith %}
         
+        {% if is_locked %}
+        <div class="lockout-message">
+            <i class="fas fa-lock error-icon"></i>
+            <h3>Compte temporairement verrouillé</h3>
+            <p>Trop de tentatives de connexion échouées. Veuillez réessayer dans quelques minutes.</p>
+        </div>
+        {% endif %}
+        
         <form method="POST" action="{{ url_for('main.login') }}" class="login-form">
             <div class="form-group">
-                <label for="username">Username</label>
-                <input type="text" id="username" name="username" required autofocus>
+                <label for="username">Nom d'utilisateur</label>
+                <input type="text" id="username" name="username" required autofocus {% if is_locked %}disabled{% endif %}>
             </div>
             
             <div class="form-group">
-                <label for="password">Password</label>
-                <input type="password" id="password" name="password" required>
+                <label for="password">Mot de passe</label>
+                <input type="password" id="password" name="password" required {% if is_locked %}disabled{% endif %}>
             </div>
             
-            <button type="submit" class="login-button">Sign In <i class="fas fa-sign-in-alt"></i></button>
+            <button type="submit" class="login-button" {% if is_locked %}disabled{% endif %}>
+                Connexion <i class="fas fa-sign-in-alt"></i>
+            </button>
         </form>
     </div>
+    
+    <script>
+        // Ajout d'une protection CSRF côté client
+        document.addEventListener('DOMContentLoaded', function() {
+            const loginForm = document.querySelector('.login-form');
+            
+            // Ajouter un délai aléatoire pour prévenir les attaques de timing
+            loginForm.addEventListener('submit', function(e) {
+                const randomDelay = Math.floor(Math.random() * 500) + 100; // Délai entre 100 et 600ms
+                e.preventDefault();
+                setTimeout(() => {
+                    this.submit();
+                }, randomDelay);
+            });
+        });
+    </script>
 </body>
 </html> 

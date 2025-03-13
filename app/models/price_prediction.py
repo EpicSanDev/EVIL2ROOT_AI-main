@@ -64,6 +64,9 @@ class PricePredictionModel:
             
         Returns:
             DataFrame with technical indicators and derived features
+            
+        Raises:
+            ValueError: If critical columns are missing from the data
         """
         df = data.copy()
         
@@ -71,8 +74,17 @@ class PricePredictionModel:
         required_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
         missing_columns = [col for col in required_columns if col not in df.columns]
         
+        # Séparer les colonnes en critiques et non-critiques
+        critical_columns = ['Open', 'High', 'Low', 'Close']
+        critical_missing = [col for col in critical_columns if col not in df.columns]
+        
+        if critical_missing:
+            error_msg = f"Colonnes critiques manquantes: {critical_missing}. Impossible de continuer le traitement."
+            self.logger.error(error_msg)
+            raise ValueError(error_msg)
+        
         if missing_columns:
-            self.logger.warning(f"Missing columns: {missing_columns}. Some features cannot be calculated.")
+            self.logger.warning(f"Colonnes manquantes: {missing_columns}. Certaines fonctionnalités ne pourront pas être calculées.")
         
         # Basic price features
         if all(col in df.columns for col in ['Open', 'High', 'Low', 'Close']):
@@ -564,36 +576,70 @@ class PricePredictionModel:
             batch_size = best_params.get('batch_size', 32)
             self.logger.info(f"Training model for {epochs} epochs with batch_size={batch_size}")
             
-            # Configurer TensorFlow pour limiter la mémoire GPU si nécessaire
+            # Configurer TensorFlow pour gérer l'utilisation du GPU de manière robuste
             use_gpu = os.environ.get('USE_GPU', 'true').lower() == 'true'
+            gpu_available = False
+            
             if use_gpu:
-                gpus = tf.config.list_physical_devices('GPU')
-                if gpus:
-                    # Limiter la mémoire GPU utilisée
-                    for gpu in gpus:
-                        tf.config.experimental.set_memory_growth(gpu, True)
-                    self.logger.info("GPU memory growth set to True")
+                try:
+                    # Importer la fonction de vérification et configuration du GPU
+                    from app.model_trainer import check_gpu_availability, configure_gpu_environment
+                    
+                    # Vérifier la disponibilité du GPU
+                    gpu_info = check_gpu_availability()
+                    gpu_available = gpu_info['available']
+                    
+                    if gpu_available:
+                        # Configurer l'environnement GPU
+                        gpu_usable = configure_gpu_environment(gpu_info)
+                        if not gpu_usable:
+                            self.logger.warning("GPU détecté mais ne peut pas être configuré correctement. Utilisation du CPU.")
+                            os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+                            gpu_available = False
+                        else:
+                            self.logger.info(f"Utilisation du GPU pour l'entraînement: {gpu_info.get('devices', ['GPU'])}")
+                    else:
+                        self.logger.warning("Aucun GPU détecté. L'entraînement se fera sur CPU.")
+                        os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+                except Exception as e:
+                    self.logger.error(f"Erreur lors de la configuration du GPU: {e}. Utilisation du CPU.")
+                    os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+                    gpu_available = False
             else:
-                # Forcer l'utilisation du CPU
+                # Forcer l'utilisation du CPU si use_gpu est False
+                self.logger.info("Utilisation forcée du CPU (GPU désactivé par configuration)")
                 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-                self.logger.info("Forced CPU usage (GPU disabled)")
             
-            history = model.fit(
-                X_train, y_train,
-                validation_data=(X_val, y_val),
-                epochs=epochs,
-                batch_size=batch_size,
-                callbacks=callbacks,
-                verbose=1
-            )
+            # Ajustement des paramètres d'entraînement en fonction de la disponibilité du GPU
+            if not gpu_available:
+                # Réduire la taille du batch sur CPU pour éviter les problèmes de mémoire
+                batch_size = min(batch_size, 16)
+                self.logger.info(f"Taille de batch réduite à {batch_size} pour utilisation CPU")
+                
+                # Réduire le nombre d'époques si nécessaire
+                if epochs > 50:
+                    self.logger.info(f"Réduction du nombre d'époques de {epochs} à 50 (mode CPU)")
+                    epochs = 50
             
-            # Libérer la mémoire
-            del X_train, y_train, X_val, y_val
-            gc.collect()
-            
-            # Load the best model (saved by ModelCheckpoint)
-            if os.path.exists(model_path):
-                model = load_model(model_path)
+            try:
+                history = model.fit(
+                    X_train, y_train,
+                    validation_data=(X_val, y_val),
+                    epochs=epochs,
+                    batch_size=batch_size,
+                    callbacks=callbacks,
+                    verbose=1
+                )
+                
+                # Libérer la mémoire
+                del X_train, y_train, X_val, y_val
+                gc.collect()
+                
+                # Load the best model (saved by ModelCheckpoint)
+                if os.path.exists(model_path):
+                    model = load_model(model_path)
+            except Exception as e:
+                self.logger.error(f"Erreur lors de la formation du modèle: {e}")
             
             # Store the model
             self.models[symbol] = model

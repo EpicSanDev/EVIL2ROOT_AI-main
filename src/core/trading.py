@@ -14,6 +14,7 @@ import psycopg2
 from psycopg2.extras import DictCursor
 from dotenv import load_dotenv
 import asyncio
+import secrets
 
 from app.models.price_prediction import PricePredictionModel
 from app.models.risk_management import RiskManagementModel
@@ -28,49 +29,97 @@ from app.models.news_retrieval import NewsRetriever
 from app.plugins import plugin_manager
 from app.plugins.events import EventType, NewsEventType
 
+# Import des utilitaires créés
+from src.utils.log_config import setup_logging
+from src.utils.env_config import get_db_params, get_redis_params
+from src.utils.redis_manager import redis_manager, retry_redis_operation, RedisConnectionError
+
 # Load environment variables
 load_dotenv()
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('logs/trading_bot.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+logger = setup_logging('trading', 'trading_bot.log')
 
 # Initialize Redis (for AI validation communication)
-redis_host = os.environ.get('REDIS_HOST', 'localhost')
-redis_port = int(os.environ.get('REDIS_PORT', 6379))
-redis_client = None
-
-try:
-    redis_client = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
-    logger.info(f"Connected to Redis at {redis_host}:{redis_port}")
-except Exception as e:
-    logger.error(f"Failed to connect to Redis: {e}")
+# Utilise le gestionnaire Redis amélioré au lieu d'une connexion directe
+redis_client = redis_manager.client
 
 # Initialize database connection
-db_params = {
-    'dbname': os.environ.get('DB_NAME', 'trading_db'),
-    'user': os.environ.get('DB_USER', 'trader'),
-    'password': os.environ.get('DB_PASSWORD', 'secure_password'),
-    'host': os.environ.get('DB_HOST', 'db'),
-    'port': os.environ.get('DB_PORT', '5432')
-}
+db_params = get_db_params()
 
-def get_db_connection():
+def get_db_connection(max_retries=3, retry_delay=2):
     """Get a connection to the PostgreSQL database"""
+    retry_count = 0
+    last_exception = None
+    
+    while retry_count < max_retries:
+        try:
+            conn = psycopg2.connect(**db_params)
+            logger.info(f"Connected to database at {db_params['host']}:{db_params['port']}")
+            return conn
+        except psycopg2.OperationalError as e:
+            retry_count += 1
+            last_exception = e
+            wait_time = retry_delay * (2 ** (retry_count - 1))  # Backoff exponentiel
+            logger.warning(f"Database connection attempt {retry_count}/{max_retries} failed: {e}. Retrying in {wait_time}s...")
+            time.sleep(wait_time)
+        except Exception as e:
+            logger.error(f"Database connection error: {e}")
+            return None
+            
+    logger.error(f"All {max_retries} database connection attempts failed. Last error: {last_exception}")
+    return None
+
+# Fonction décorée pour publier un message sur Redis avec gestion des erreurs
+@retry_redis_operation(max_retries=3)
+def publish_trade_request(request_data):
+    """
+    Publie une demande de validation de trading sur Redis avec gestion des erreurs.
+    
+    Args:
+        request_data: Données de la requête de validation
+        
+    Returns:
+        True si la publication a réussi, False sinon
+    """
     try:
-        conn = psycopg2.connect(**db_params)
-        logger.info(f"Connected to database at {db_params['host']}:{db_params['port']}")
-        return conn
+        channel = 'trade_requests'
+        message = json.dumps(request_data)
+        return redis_manager.safe_publish(channel, message)
     except Exception as e:
-        logger.error(f"Database connection error: {e}")
+        logger.error(f"Error publishing trade request: {e}")
+        raise
+
+# Fonction décorée pour s'abonner aux réponses de validation
+@retry_redis_operation(max_retries=3)
+def subscribe_to_validation_responses(timeout=5):
+    """
+    S'abonne aux réponses de validation avec un timeout.
+    
+    Args:
+        timeout: Délai d'attente en secondes
+        
+    Returns:
+        Message de validation ou None si timeout
+    """
+    try:
+        pubsub = redis_manager.get_pubsub()
+        channel = 'trade_responses'
+        pubsub.subscribe(channel)
+        
+        # Attendre la réponse avec un timeout
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            message = pubsub.get_message(timeout=0.1)
+            if message and message['type'] == 'message':
+                return json.loads(message['data'])
+            time.sleep(0.1)
+            
+        logger.warning(f"Timeout waiting for validation response after {timeout}s")
         return None
+    except Exception as e:
+        logger.error(f"Error subscribing to validation responses: {e}")
+        raise
 
 class DataManager:
     def __init__(self, symbols: List[str], start_date: Optional[str] = None, end_date: Optional[str] = None):

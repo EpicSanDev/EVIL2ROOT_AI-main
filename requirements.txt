@@ -1,106 +1,106 @@
 # Core Dependencies
-numpy>=1.24.3
-pandas>=2.0.1
-scipy>=1.10.1
-scikit-learn>=1.3.0
-joblib>=1.2.0
-matplotlib>=3.7.1
-seaborn>=0.12.2
-openpyxl>=3.1.2
-beautifulsoup4>=4.12.2
-threadpoolctl>=3.1.0
-requests>=2.30.0
-psycopg2-binary>=2.9.6
-redis>=4.5.5
-psutil>=5.9.0
-flask>=2.3.2
-flask-sqlalchemy>=3.0.3
-flask-migrate>=4.0.4
-flask-login>=0.6.2
-flask-wtf>=1.1.1
-flask-cors>=3.0.10
-python-dotenv>=1.0.0
-gunicorn>=20.1.0
-alembic>=1.10.4
-yfinance>=0.2.18
-pylint>=2.17.4
-pytest>=7.3.1
-pytest-cov>=4.1.0
-python-telegram-bot>=20.6
-asyncio>=3.4.3
-schedule>=1.2.0
+numpy==1.24.3
+pandas==2.0.1
+scipy==1.10.1
+scikit-learn==1.3.0
+joblib==1.2.0
+matplotlib==3.7.1
+seaborn==0.12.2
+openpyxl==3.1.2
+beautifulsoup4==4.12.2
+threadpoolctl==3.1.0
+requests==2.30.0
+psycopg2-binary==2.9.6
+redis==4.5.5
+psutil==5.9.0
+flask==2.3.2
+flask-sqlalchemy==3.0.3
+flask-migrate==4.0.4
+flask-login==0.6.2
+flask-wtf==1.1.1
+flask-cors==3.0.10
+python-dotenv==1.0.0
+gunicorn==20.1.0
+alembic==1.10.4
+yfinance==0.2.18
+pylint==2.17.4
+pytest==7.3.1
+pytest-cov==4.1.0
+python-telegram-bot==20.6
+asyncio==3.4.3
+schedule==1.2.0
 
 # AI/ML Dependencies
 tensorflow==2.15.0
 keras==2.15.0
-pytorch-lightning>=2.0.2
-torch>=2.0.1
-torchvision>=0.15.2
-transformers>=4.29.2
-xgboost>=1.7.5
-lightgbm>=3.3.5
-catboost>=1.2
-openai>=0.27.8
-anthropic>=0.3.11
-pydantic>=1.10.8
-dill>=0.3.6
-h5py>=3.8.0
-sqlalchemy>=2.0.15
-optuna-integration[tfkeras]>=3.3.0
+pytorch-lightning==2.0.2
+torch==2.0.1
+torchvision==0.15.2
+transformers==4.29.2
+xgboost==1.7.5
+lightgbm==3.3.5
+catboost==1.2.0
+openai==0.27.8
+anthropic==0.3.11
+pydantic==1.10.8
+dill==0.3.6
+h5py==3.8.0
+sqlalchemy==2.0.15
+optuna-integration[tfkeras]==3.3.0
 
-# Explainable AI / Ensemble Learning - NOUVEAU
-shap>=0.43.0
-lime>=0.2.0
-interpret>=0.4.2
-interpret-core>=0.4.2
-alibi>=0.9.5
-dalex>=1.5.0
-econml>=0.14.1
-causalml>=0.13.0
-bayesian-optimization>=1.4.3
-mlflow>=2.11.0
-wandb>=0.16.5
-mlxtend>=0.23.0
-catboost>=1.2.3
-eli5>=0.13.0
-graphviz>=0.20.1  # Pour la visualisation des arbres
-dtreeviz>=2.2.2   # Pour la visualisation des arbres de décision
-yellowbrick>=1.5  # Pour la visualisation des modèles
-plotly_express>=0.4.1  # Pour la visualisation des explications
+# Explainable AI / Ensemble Learning
+shap==0.43.0
+lime==0.2.0
+interpret==0.4.2
+interpret-core==0.4.2
+alibi==0.9.5
+dalex==1.5.0
+econml==0.14.1
+causalml==0.13.0
+bayesian-optimization==1.4.3
+mlflow==2.11.0
+wandb==0.16.5
+mlxtend==0.23.0
+catboost==1.2.3
+eli5==0.13.0
+graphviz==0.20.1  # Pour la visualisation des arbres
+dtreeviz==2.2.2   # Pour la visualisation des arbres de décision
+yellowbrick==1.5.0  # Pour la visualisation des modèles
+plotly_express==0.4.1  # Pour la visualisation des explications
 
 # Trading Analysis
-ta>=0.10.2
-python-binance>=1.0.17
-ccxt>=3.0.69
-statsmodels>=0.14.0
-alpha_vantage>=2.3.1
-backtrader>=1.9.76
-# talib>=0.4.0  # Commenté car difficile à installer, nécessite une installation séparée
+ta==0.10.2
+python-binance==1.0.17
+ccxt==3.0.69
+statsmodels==0.14.0
+alpha_vantage==2.3.1
+backtrader==1.9.76
+# talib==0.4.0  # Commenté car difficile à installer, nécessite une installation séparée
 
-# Monitoring & Visualization - OPTIMIZED
+# Monitoring & Visualization
 plotly==5.14.1  # Version exacte pour stabilité
 dash==2.10.0    # Version exacte pour stabilité
-prometheus_client>=0.16.0  # Pour la surveillance avec Prometheus
-# streamlit>=1.22.0       # Commenté car pas utilisé directement dans l'app mais par Plotly
-# bokeh>=3.1.1            # Commenté car pas utilisé directement dans l'app
+prometheus_client==0.16.0  # Pour la surveillance avec Prometheus
+# streamlit==1.22.0       # Commenté car pas utilisé directement dans l'app mais par Plotly
+# bokeh==3.1.1            # Commenté car pas utilisé directement dans l'app
 
 # Advanced Models
-sentence-transformers>=2.2.2
-hnswlib>=0.7.0
-optimum>=1.9.1
-langchain>=0.0.283
-langchain-openai>=0.0.2
+sentence-transformers==2.2.2
+hnswlib==0.7.0
+optimum==1.9.1
+langchain==0.0.283
+langchain-openai==0.0.2
 
 # Nouvelles dépendances pour amélioration de précision
-optuna>=3.3.0
-hyperopt>=0.2.7
-vaderSentiment>=3.3.2
-nltk>=3.8.1
-bayesian-optimization>=1.4.3
-scikit-optimize>=0.9.0
-gpytorch>=1.11
-stable-baselines3>=2.1.0
-gymnasium>=0.29.1
-tune-sklearn>=0.5.0
-fastai>=2.7.12
-finbert-embedding>=0.1.3
+optuna==3.3.0
+hyperopt==0.2.7
+vaderSentiment==3.3.2
+nltk==3.8.1
+bayesian-optimization==1.4.3
+scikit-optimize==0.9.0
+gpytorch==1.11.0
+stable-baselines3==2.1.0
+gymnasium==0.29.1
+tune-sklearn==0.5.0
+fastai==2.7.12
+finbert-embedding==0.1.3

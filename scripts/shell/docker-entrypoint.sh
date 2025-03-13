@@ -9,6 +9,43 @@ echo "=== Evil2Root Trading Bot - Démarrage Docker ==="
 echo "Date de démarrage: $(date)"
 echo "Environnement: $FLASK_ENV"
 
+# Fonction pour charger les secrets depuis les fichiers Docker Secrets
+load_secrets() {
+    echo "Chargement des secrets Docker..."
+    
+    # Fonction pour charger un secret
+    load_secret() {
+        local file_var="$1_FILE"
+        local secret_file="${!file_var}"
+        
+        if [ -n "$secret_file" ] && [ -f "$secret_file" ]; then
+            local secret_value=$(cat "$secret_file")
+            export "$1"="$secret_value"
+            echo "Secret $1 chargé à partir de $secret_file"
+        fi
+    }
+    
+    # Chargement des secrets spécifiques
+    load_secret "DB_USER"
+    load_secret "DB_PASSWORD"
+    load_secret "SECRET_KEY"
+    load_secret "ADMIN_PASSWORD"
+    load_secret "TELEGRAM_TOKEN"
+    load_secret "FINNHUB_API_KEY"
+    load_secret "OPENROUTER_API_KEY"
+    load_secret "COINBASE_API_KEY"
+    load_secret "COINBASE_WEBHOOK_SECRET"
+    
+    # Construction dynamique de DATABASE_URI avec les identifiants chargés des secrets
+    if [ -n "$DB_USER" ] && [ -n "$DB_PASSWORD" ]; then
+        export DATABASE_URI="postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST:-db}:${DB_PORT:-5432}/${DB_NAME:-trading_db}"
+        echo "DATABASE_URI mise à jour avec les secrets"
+    fi
+}
+
+# Charger les secrets au démarrage
+load_secrets
+
 # Fonction pour démarrer le scheduler d'analyse en arrière-plan
 start_market_scheduler() {
     echo "Démarrage du scheduler d'analyse de marché..."

@@ -21,7 +21,7 @@ import inspect
 import gc
 
 class PricePredictionModel:
-    def __init__(self, sequence_length=60, future_periods=1, model_dir='models'):
+    def __init__(self, sequence_length=60, future_periods=1, model_dir='models', use_xla=False, memory_limit=None):
         """
         Initialize the price prediction model with advanced configuration.
         
@@ -29,6 +29,8 @@ class PricePredictionModel:
             sequence_length: Number of time steps to look back
             future_periods: Number of time steps to predict ahead
             model_dir: Directory to save trained models
+            use_xla: Whether to enable XLA acceleration (can increase memory usage)
+            memory_limit: Limit GPU memory growth (in MB), None for dynamic growth
         """
         self.models = {}
         self.scalers = {}
@@ -42,7 +44,10 @@ class PricePredictionModel:
             os.makedirs(model_dir)
             
         # Configure TensorFlow for better performance
-        tf.config.optimizer.set_jit(True)  # Enable XLA acceleration
+        tf.config.optimizer.set_jit(use_xla)  # Enable/disable XLA acceleration based on parameter
+        
+        # Configure GPU memory usage
+        self._configure_gpu_memory(memory_limit)
         
         # Set up logging
         logging.basicConfig(
@@ -54,6 +59,31 @@ class PricePredictionModel:
             ]
         )
         self.logger = logging.getLogger(__name__)
+
+    def _configure_gpu_memory(self, memory_limit=None):
+        """
+        Configure GPU memory usage to prevent OOM errors.
+        
+        Args:
+            memory_limit: Memory limit in MB, None for dynamic growth
+        """
+        try:
+            gpus = tf.config.list_physical_devices('GPU')
+            if gpus:
+                for gpu in gpus:
+                    if memory_limit:
+                        # Limit GPU memory
+                        tf.config.experimental.set_virtual_device_configuration(
+                            gpu,
+                            [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=memory_limit)]
+                        )
+                        self.logger.info(f"GPU memory limited to {memory_limit}MB")
+                    else:
+                        # Allow memory growth
+                        tf.config.experimental.set_memory_growth(gpu, True)
+                        self.logger.info("GPU memory growth enabled")
+        except Exception as e:
+            self.logger.warning(f"Error configuring GPU memory: {str(e)}")
 
     def _prepare_features(self, data):
         """
@@ -420,60 +450,51 @@ class PricePredictionModel:
                 'loss': 'mean_squared_error'
             }
 
-    def train(self, data=None, symbol=None, optimize=True, epochs=100, validation_split=0.2, **kwargs):
+    def train(self, data=None, symbol=None, optimize=True, epochs=100, validation_split=0.2, 
+             batch_size=None, memory_efficient=False, **kwargs):
         """
-        Train the model with advanced features and techniques.
+        Train the price prediction model on historical data.
         
         Args:
             data: DataFrame with OHLCV data
             symbol: Trading symbol
             optimize: Whether to optimize hyperparameters
-            epochs: Number of training epochs if not optimizing
-            validation_split: Validation data fraction
-            **kwargs: Additional arguments that might be passed
+            epochs: Number of training epochs
+            validation_split: Fraction of data to use for validation
+            batch_size: Batch size for training, None for auto-selection
+            memory_efficient: Use more memory-efficient approaches (slower training)
+            **kwargs: Additional hyperparameters
             
         Returns:
-            Training history object
+            Training history
         """
-        # Handle various parameter combinations, including keyword arguments
-        # Extensive parameter handling to avoid the missing symbol issue
-        if data is None and 'data' in kwargs:
-            data = kwargs.get('data')
-        if data is None and 'market_data' in kwargs:
-            data = kwargs.get('market_data')
-            
-        if symbol is None and 'symbol' in kwargs:
-            symbol = kwargs.get('symbol')
-            
-        # More parameters that might be in kwargs
-        optimize = kwargs.get('optimize', optimize)
-        epochs = kwargs.get('epochs', epochs)
-        validation_split = kwargs.get('validation_split', validation_split)
+        # Get caller information for debugging
+        caller_frame = inspect.currentframe().f_back
+        if caller_frame:
+            caller_info = f"{os.path.basename(caller_frame.f_code.co_filename)}:{caller_frame.f_lineno}"
+        else:
+            caller_info = "unknown"
         
-        # Ajout d'un log détaillé
-        caller = inspect.getouterframes(inspect.currentframe())[1]
-        caller_info = f"{caller.filename}:{caller.lineno} in {caller.function}"
-        
-        # Print extra debugging information
-        self.logger.info(f"EXTRA DEBUG - train parameters: data={type(data)}, symbol={symbol}, optimize={optimize}")
-        self.logger.info(f"EXTRA DEBUG - caller info: {caller_info}")
-        self.logger.info(f"EXTRA DEBUG - arguments: {inspect.signature(self.train)}")
-        
-        # If symbol is None, raise a detailed error to help debugging
-        if symbol is None:
-            error_msg = f"Symbol parameter is required but was None. Called from {caller_info}."
-            self.logger.error(error_msg)
-            raise ValueError(error_msg)
+        # Lire les variables d'environnement pour configuration
+        max_data_points = int(os.environ.get('MAX_DATA_POINTS', '5000'))
+        use_gpu = os.environ.get('USE_GPU', 'true').lower() == 'true'
+        model_complexity = os.environ.get('MODEL_COMPLEXITY', 'high')
+        memory_efficient = memory_efficient or os.environ.get('MEMORY_EFFICIENT', 'false').lower() == 'true'
             
         self.logger.info(f"DÉBUT DE TRAIN pour {symbol} - appelé depuis: {caller_info}")
+        self.logger.info(f"Configuration: GPU={use_gpu}, Complexité={model_complexity}, Mémoire efficiente={memory_efficient}")
+        
+        # Nettoyage préventif avant de commencer l'entraînement
+        tf.keras.backend.clear_session()
+        gc.collect()
         
         try:
             self.logger.info(f"Training model for symbol: {symbol}")
             
             # Limiter la taille des données pour réduire la consommation de mémoire
-            if len(data) > 5000:
-                self.logger.info(f"Réduction de la taille des données: {len(data)} → 5000 points")
-                data = data.iloc[-5000:]
+            if len(data) > max_data_points:
+                self.logger.info(f"Réduction de la taille des données: {len(data)} → {max_data_points} points")
+                data = data.iloc[-max_data_points:]
             
             # Create features
             feature_data = self._prepare_features(data)
@@ -510,44 +531,43 @@ class PricePredictionModel:
             del X_seq, y_seq
             gc.collect()
             
-            # Get hyperparameters
+            # Optimize hyperparameters if requested
             if optimize:
-                # Limiter le nombre d'essais depuis les variables d'environnement
-                max_trials = int(os.environ.get('MAX_OPTIMIZATION_TRIALS', 25))
-                optimization_timeout = int(os.environ.get('OPTIMIZATION_TIMEOUT', 3600))
-                
-                self.logger.info(f"Optimizing hyperparameters with max_trials={max_trials}, timeout={optimization_timeout}s")
-                best_params = self._optimize_hyperparameters(X_train, y_train, symbol, 
-                                                           max_trials=max_trials, 
-                                                           timeout=optimization_timeout)
+                self.logger.info(f"Optimizing hyperparameters for {symbol}")
+                input_shape = X_train.shape[1:]
+                best_params = self._optimize_hyperparameters(X_train, y_train, symbol, **kwargs)
             else:
+                # Use default hyperparameters
+                input_shape = X_train.shape[1:]
                 best_params = {
-                    'model_type': 'hybrid',
-                    'lstm_units': 100,
-                    'dropout_rate': 0.3,
-                    'learning_rate': 0.001,
-                    'batch_size': int(os.environ.get('BATCH_SIZE', 32)),
-                    'dense_units': 32,
-                    'l1': 1e-5,
-                    'l2': 1e-5,
-                    'loss': 'mean_squared_error'
+                    'model_type': kwargs.get('model_type', 'hybrid'),
+                    'lstm_units': kwargs.get('lstm_units', 64),
+                    'dropout_rate': kwargs.get('dropout_rate', 0.2),
+                    'learning_rate': kwargs.get('learning_rate', 0.001),
+                    'batch_size': kwargs.get('batch_size', 32),
+                    'l1': kwargs.get('l1', 0.0),
+                    'l2': kwargs.get('l2', 0.0),
+                    'conv_filters': kwargs.get('conv_filters', 64)
                 }
-            
-            # Ajuster la complexité du modèle en fonction de la variable MODEL_COMPLEXITY
-            model_complexity = os.environ.get('MODEL_COMPLEXITY', 'medium')
+                
+            # Ajuster la complexité du modèle en fonction de MODEL_COMPLEXITY
             if model_complexity == 'low':
-                best_params['lstm_units'] = min(best_params.get('lstm_units', 100), 64)
-                best_params['dense_units'] = min(best_params.get('dense_units', 32), 16)
-            elif model_complexity == 'high':
-                # Garder les valeurs optimisées
-                pass
+                best_params['lstm_units'] = max(16, best_params.get('lstm_units', 64) // 4)
+                best_params['conv_filters'] = max(16, best_params.get('conv_filters', 64) // 4)
+                best_params['dense_units'] = 16
+            elif model_complexity == 'medium':
+                best_params['lstm_units'] = max(32, best_params.get('lstm_units', 64) // 2)
+                best_params['conv_filters'] = max(32, best_params.get('conv_filters', 64) // 2)
+                best_params['dense_units'] = 32
             
-            # Build and train the model
-            self.logger.info(f"Building model with parameters: {best_params}")
-            model = self.build_model(best_params, input_shape=(X_train.shape[1], X_train.shape[2]))
+            # Build model
+            self.logger.info(f"Building model for {symbol} with params: {best_params}")
+            model = self.build_model(best_params, input_shape)
             
-            # Define callbacks
+            # Préparer le chemin du modèle
             model_path = os.path.join(self.model_dir, f'{symbol}_model.h5')
+            
+            # Définir les callbacks
             callbacks = [
                 EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True),
                 ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=10, min_lr=1e-6),
@@ -561,31 +581,92 @@ class PricePredictionModel:
                 epochs = min(epochs, 100)
             
             # Train the model
-            batch_size = best_params.get('batch_size', 32)
+            if batch_size is None:
+                batch_size = best_params.get('batch_size', 32)
+                
+                # Ajuster la taille du batch pour la mémoire
+                if memory_efficient:
+                    batch_size = min(batch_size, 16)
+                
             self.logger.info(f"Training model for {epochs} epochs with batch_size={batch_size}")
             
             # Configurer TensorFlow pour limiter la mémoire GPU si nécessaire
-            use_gpu = os.environ.get('USE_GPU', 'true').lower() == 'true'
+            gpu_available = False
             if use_gpu:
                 gpus = tf.config.list_physical_devices('GPU')
                 if gpus:
+                    gpu_available = True
                     # Limiter la mémoire GPU utilisée
                     for gpu in gpus:
                         tf.config.experimental.set_memory_growth(gpu, True)
-                    self.logger.info("GPU memory growth set to True")
-            else:
-                # Forcer l'utilisation du CPU
-                os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-                self.logger.info("Forced CPU usage (GPU disabled)")
+                    self.logger.info(f"GPU memory growth set to True, using {len(gpus)} GPU(s)")
             
-            history = model.fit(
-                X_train, y_train,
-                validation_data=(X_val, y_val),
-                epochs=epochs,
-                batch_size=batch_size,
-                callbacks=callbacks,
-                verbose=1
-            )
+            if not use_gpu or not gpu_available:
+                # Forcer l'utilisation du CPU
+                with tf.device('/CPU:0'):
+                    self.logger.info("Forced CPU usage (GPU disabled)")
+                    
+                    # Réduire la taille du batch sur CPU pour éviter les problèmes de mémoire
+                    batch_size = min(batch_size, 16)
+                    self.logger.info(f"Batch size reduced to {batch_size} for CPU usage")
+                    
+                    # Réduire le nombre d'époques si nécessaire
+                    if epochs > 50 and memory_efficient:
+                        self.logger.info(f"Reducing epochs from {epochs} to 50 (CPU mode)")
+                        epochs = 50
+                    
+                    try:
+                        history = model.fit(
+                            X_train, y_train,
+                            validation_data=(X_val, y_val),
+                            epochs=epochs,
+                            batch_size=batch_size,
+                            callbacks=callbacks,
+                            verbose=1
+                        )
+                    except Exception as e:
+                        self.logger.error(f"Training error: {e}")
+                        # Tenter avec un batch encore plus petit
+                        batch_size = 8
+                        self.logger.info(f"Retrying with reduced batch size: {batch_size}")
+                        history = model.fit(
+                            X_train, y_train,
+                            validation_data=(X_val, y_val),
+                            epochs=epochs,
+                            batch_size=batch_size,
+                            callbacks=callbacks,
+                            verbose=1
+                        )
+            else:
+                # Utiliser le GPU
+                try:
+                    history = model.fit(
+                        X_train, y_train,
+                        validation_data=(X_val, y_val),
+                        epochs=epochs,
+                        batch_size=batch_size,
+                        callbacks=callbacks,
+                        verbose=1
+                    )
+                except tf.errors.ResourceExhaustedError as e:
+                    self.logger.warning(f"GPU memory exhausted: {e}")
+                    # Libérer la mémoire et réessayer avec un batch plus petit
+                    tf.keras.backend.clear_session()
+                    gc.collect()
+                    
+                    # Réduire la taille du batch et réessayer sur CPU
+                    batch_size = max(4, batch_size // 4)
+                    self.logger.info(f"Retrying on CPU with batch_size={batch_size}")
+                    
+                    with tf.device('/CPU:0'):
+                        history = model.fit(
+                            X_train, y_train,
+                            validation_data=(X_val, y_val),
+                            epochs=min(epochs, 50),
+                            batch_size=batch_size,
+                            callbacks=callbacks,
+                            verbose=1
+                        )
             
             # Libérer la mémoire
             del X_train, y_train, X_val, y_val
@@ -599,9 +680,10 @@ class PricePredictionModel:
             self.models[symbol] = model
             
             # Save feature column names for prediction
+            feature_cols_path = os.path.join(self.model_dir, f'{symbol}_feature_columns.pkl')
             joblib.dump(
-                list(feature_data.columns) if 'feature_data' in locals() else [],
-                os.path.join(self.model_dir, f'{symbol}_feature_columns.pkl')
+                list(best_params.get('feature_columns', [])),
+                feature_cols_path
             )
             
             # Save scalers
@@ -629,6 +711,7 @@ class PricePredictionModel:
 
         except Exception as e:
             self.logger.error(f"Error during model training for {symbol}: {str(e)}")
+            self.logger.error(traceback.format_exc())
             # Libérer la mémoire en cas d'erreur
             tf.keras.backend.clear_session()
             gc.collect()
@@ -644,49 +727,78 @@ class PricePredictionModel:
             y_val: Validation targets
             symbol: Trading symbol
         """
-        y_pred = model.predict(X_val)
-        
-        # Convert scaled predictions back to original values
-        y_val_orig = self.scalers[symbol].inverse_transform(y_val)
-        y_pred_orig = self.scalers[symbol].inverse_transform(y_pred)
-        
-        # Calculate metrics
-        mse = mean_squared_error(y_val_orig, y_pred_orig)
-        rmse = np.sqrt(mse)
-        mae = mean_absolute_error(y_val_orig, y_pred_orig)
-        r2 = r2_score(y_val_orig, y_pred_orig)
-        
-        # Calculate percentage errors
-        mape = np.mean(np.abs((y_val_orig - y_pred_orig) / y_val_orig)) * 100
-        
-        # Save metrics
-        metrics = {
-            'mse': mse,
-            'rmse': rmse,
-            'mae': mae,
-            'r2': r2,
-            'mape': mape,
-            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        }
-        
-        joblib.dump(
-            metrics,
-            os.path.join(self.model_dir, f'{symbol}_metrics.pkl')
-        )
-        
-        # Log metrics
-        self.logger.info(f"Model evaluation for {symbol}:")
-        self.logger.info(f"MSE: {mse:.6f}, RMSE: {rmse:.6f}, MAE: {mae:.6f}")
-        self.logger.info(f"R²: {r2:.6f}, MAPE: {mape:.2f}%")
-        
-        # Plot predictions vs actual
-        plt.figure(figsize=(12, 6))
-        plt.plot(y_val_orig[:100], label='Actual')
-        plt.plot(y_pred_orig[:100], label='Predicted')
-        plt.title(f'Price Prediction Evaluation for {symbol}')
-        plt.legend()
-        plt.savefig(os.path.join(self.model_dir, f'{symbol}_prediction_plot.png'))
-        plt.close()
+        try:
+            self.logger.info(f"Evaluating model for {symbol}")
+            
+            # Utiliser un batch raisonnable pour les prédictions afin d'éviter les OOM
+            batch_size = min(len(X_val), 32)
+            
+            # Make predictions with resource constraints
+            with tf.device('/CPU:0' if os.environ.get('FORCE_CPU_EVAL', 'false').lower() == 'true' else None):
+                y_pred = model.predict(X_val, batch_size=batch_size, verbose=0)
+            
+            # Convert scaled predictions back to original values
+            y_val_orig = self.scalers[symbol].inverse_transform(y_val)
+            y_pred_orig = self.scalers[symbol].inverse_transform(y_pred)
+            
+            # Libérer de la mémoire
+            del y_pred
+            gc.collect()
+            
+            # Calculate metrics
+            mse = mean_squared_error(y_val_orig, y_pred_orig)
+            rmse = np.sqrt(mse)
+            mae = mean_absolute_error(y_val_orig, y_pred_orig)
+            r2 = r2_score(y_val_orig, y_pred_orig)
+            
+            # Calculate percentage errors (with handling for zero values)
+            with np.errstate(divide='ignore', invalid='ignore'):
+                percentage_errors = np.abs((y_val_orig - y_pred_orig) / np.maximum(y_val_orig, 1e-7)) * 100
+                mape = np.mean(np.where(np.isfinite(percentage_errors), percentage_errors, 0))
+            
+            # Save metrics
+            metrics = {
+                'mse': float(mse),
+                'rmse': float(rmse),
+                'mae': float(mae),
+                'r2': float(r2),
+                'mape': float(mape),
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+            
+            joblib.dump(
+                metrics,
+                os.path.join(self.model_dir, f'{symbol}_metrics.pkl')
+            )
+            
+            # Log metrics
+            self.logger.info(f"Model evaluation for {symbol}:")
+            self.logger.info(f"MSE: {mse:.6f}, RMSE: {rmse:.6f}, MAE: {mae:.6f}")
+            self.logger.info(f"R²: {r2:.6f}, MAPE: {mape:.2f}%")
+            
+            # Limit the number of points to plot to avoid memory issues
+            max_plot_points = min(100, len(y_val_orig))
+            
+            # Plot predictions vs actual
+            plt.figure(figsize=(12, 6))
+            plt.plot(y_val_orig[:max_plot_points], label='Actual')
+            plt.plot(y_pred_orig[:max_plot_points], label='Predicted')
+            plt.title(f'Price Prediction Evaluation for {symbol}')
+            plt.legend()
+            plt.savefig(os.path.join(self.model_dir, f'{symbol}_prediction_plot.png'))
+            plt.close()
+            
+            # Libérer la mémoire
+            del y_val_orig, y_pred_orig
+            gc.collect()
+            
+            return metrics
+            
+        except Exception as e:
+            self.logger.error(f"Error during model evaluation: {str(e)}")
+            # Libérer la mémoire en cas d'erreur
+            gc.collect()
+            return None
 
     def predict(self, data, symbol, days_ahead=1):
         """
@@ -700,29 +812,31 @@ class PricePredictionModel:
         Returns:
             Dictionary with predictions and confidence intervals
         """
-        if symbol not in self.models:
-            # Try to load the model from disk
-            model_path = os.path.join(self.model_dir, f'{symbol}_model.h5')
-            if os.path.exists(model_path):
-                self.models[symbol] = load_model(model_path)
-                
-                # Load scalers
-                scaler_path = os.path.join(self.model_dir, f'{symbol}_target_scaler.pkl')
-                feature_scalers_path = os.path.join(self.model_dir, f'{symbol}_feature_scalers.pkl')
-                
-                if os.path.exists(scaler_path) and os.path.exists(feature_scalers_path):
-                    self.scalers[symbol] = joblib.load(scaler_path)
-                    self.feature_scalers[symbol] = joblib.load(feature_scalers_path)
-                else:
-                    raise ValueError(f"Scalers for {symbol} not found. Train the model first.")
-            else:
-                raise ValueError(f"Model for {symbol} not found. Train the model first.")
-        
-        # Get feature column names
-        feature_columns_path = os.path.join(self.model_dir, f'{symbol}_feature_columns.pkl')
-        
         try:
+            if symbol not in self.models:
+                # Try to load the model from disk
+                model_path = os.path.join(self.model_dir, f'{symbol}_model.h5')
+                if os.path.exists(model_path):
+                    self.logger.info(f"Loading model for {symbol} from disk")
+                    self.models[symbol] = load_model(model_path)
+                    
+                    # Load scalers
+                    scaler_path = os.path.join(self.model_dir, f'{symbol}_target_scaler.pkl')
+                    feature_scalers_path = os.path.join(self.model_dir, f'{symbol}_feature_scalers.pkl')
+                    
+                    if os.path.exists(scaler_path) and os.path.exists(feature_scalers_path):
+                        self.scalers[symbol] = joblib.load(scaler_path)
+                        self.feature_scalers[symbol] = joblib.load(feature_scalers_path)
+                    else:
+                        raise ValueError(f"Scalers for {symbol} not found. Train the model first.")
+                else:
+                    raise ValueError(f"Model for {symbol} not found. Train the model first.")
+            
+            # Get feature column names
+            feature_columns_path = os.path.join(self.model_dir, f'{symbol}_feature_columns.pkl')
+            
             # Create features from input data
+            self.logger.info(f"Preparing features for prediction ({symbol})")
             feature_data = self._prepare_features(data)
             
             # Check if we have enough features
@@ -732,16 +846,39 @@ class PricePredictionModel:
                 feature_data = self._prepare_features(data)
             
             # Scale the features
+            self.logger.info(f"Scaling data for prediction ({symbol})")
             X_scaled, _ = self._scale_data(feature_data, symbol, train_mode=False)
             
+            # Libérer la mémoire des données brutes
+            del feature_data
+            gc.collect()
+            
             # Create sequences
+            self.logger.info(f"Creating sequences for prediction ({symbol})")
             X_seq, _ = self._create_sequences(X_scaled, np.zeros((len(X_scaled), 1)), self.sequence_length, self.future_periods)
             
+            # Libérer la mémoire des données mises à l'échelle
+            del X_scaled
+            gc.collect()
+            
+            # Configurer la prédiction pour utiliser moins de mémoire
+            batch_size = min(len(X_seq), 32)  # Batch limité pour éviter OOM
+            
             # Make predictions
-            predictions = self.models[symbol].predict(X_seq)
+            self.logger.info(f"Running model prediction for {symbol}")
+            with tf.device('/CPU:0' if os.environ.get('FORCE_CPU_PREDICT', 'false').lower() == 'true' else None):
+                predictions = self.models[symbol].predict(X_seq, batch_size=batch_size, verbose=0)
+            
+            # Libérer la mémoire des séquences
+            del X_seq
+            gc.collect()
             
             # Inverse transform to get actual prices
             predictions_orig = self.scalers[symbol].inverse_transform(predictions)
+            
+            # Libérer la mémoire des prédictions mises à l'échelle
+            del predictions
+            gc.collect()
             
             # Get the last actual price
             last_price = data['Close'].iloc[-1]
@@ -757,6 +894,10 @@ class PricePredictionModel:
             # Calculate percent change
             percent_change = ((predicted_price / last_price) - 1) * 100
             
+            # Nettoyage final de la mémoire
+            tf.keras.backend.clear_session()
+            gc.collect()
+            
             # Return prediction with confidence intervals
             return {
                 'current_price': float(last_price),
@@ -769,6 +910,9 @@ class PricePredictionModel:
             
         except Exception as e:
             self.logger.error(f"Error during prediction: {str(e)}")
+            # Nettoyage de la mémoire en cas d'erreur
+            tf.keras.backend.clear_session()
+            gc.collect()
             
             # Fallback to a simple prediction based on the last price
             if 'Close' in data.columns:

@@ -26,16 +26,13 @@ from langchain import LLMChain
 from transformers import pipeline
 from sentence_transformers import SentenceTransformer
 
+# Import des utilitaires créés
+from src.utils.log_config import setup_logging
+from src.utils.env_config import get_redis_params, get_env_var
+from src.utils.redis_manager import redis_manager, retry_redis_operation
+
 # Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('logs/ai_validator.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger('ai_validator')
+logger = setup_logging('ai_validator', 'ai_validator.log')
 
 class AITradeValidator:
     """
@@ -44,10 +41,8 @@ class AITradeValidator:
     """
     
     def __init__(self):
-        # Connect to Redis
-        redis_host = os.environ.get('REDIS_HOST', 'localhost')
-        redis_port = int(os.environ.get('REDIS_PORT', 6379))
-        self.redis_client = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
+        # Utilisation du gestionnaire Redis amélioré au lieu d'une connexion directe
+        self.redis_manager = redis_manager
         
         # Subscription channels
         self.trade_request_channel = 'trade_requests'
@@ -245,8 +240,11 @@ class AITradeValidator:
             validation_result['signal_id'] = signal_id
             
             # Send the result back to Redis using a different channel
-            if self.redis_client:
-                self.redis_client.publish('trade_validation_results', json.dumps(validation_result))
+            if self.redis_manager:
+                self.redis_manager.safe_publish(
+                    self.trade_response_channel,
+                    json.dumps(validation_result)
+                )
             
             return validation_result
             
@@ -258,8 +256,11 @@ class AITradeValidator:
                 'signal_id': signal_id,
                 'reason': f"Validation error: {str(e)}"
             }
-            if self.redis_client:
-                self.redis_client.publish('trade_validation_results', json.dumps(error_result))
+            if self.redis_manager:
+                self.redis_manager.safe_publish(
+                    self.trade_response_channel,
+                    json.dumps(error_result)
+                )
             return error_result
 
     def _run_validation(self, symbol: str, proposed_action: str, proposed_price: float, 
@@ -797,10 +798,11 @@ Répondez UNIQUEMENT avec l'objet JSON.
             else:
                 return "Some validation checks failed."
 
+    @retry_redis_operation(max_retries=5)
     def listen_for_trade_requests(self):
         """Listen for trade requests from the trading bot"""
         logger.info("Starting to listen for trade requests...")
-        pubsub = self.redis_client.pubsub()
+        pubsub = self.redis_manager.get_pubsub()
         pubsub.subscribe(self.trade_request_channel)
         
         for message in pubsub.listen():
@@ -812,13 +814,16 @@ Répondez UNIQUEMENT avec l'objet JSON.
                     # Validate trade
                     validation_result = self.validate_trade(trade_request)
                     
-                    # Send response back
-                    self.redis_client.publish(
+                    # Send response back with error handling
+                    success = self.redis_manager.safe_publish(
                         self.trade_response_channel,
                         json.dumps(validation_result)
                     )
                     
-                    logger.info(f"Sent validation response: {validation_result}")
+                    if success:
+                        logger.info(f"Sent validation response: {validation_result}")
+                    else:
+                        logger.error("Failed to send validation response")
                     
                 except Exception as e:
                     logger.error(f"Error processing message: {e}")
