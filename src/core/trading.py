@@ -15,6 +15,10 @@ from psycopg2.extras import DictCursor
 from dotenv import load_dotenv
 import asyncio
 import secrets
+import pickle
+import random
+import tensorflow as tf
+from collections import defaultdict
 
 from app.models.price_prediction import PricePredictionModel
 from app.models.risk_management import RiskManagementModel
@@ -33,6 +37,15 @@ from app.plugins.events import EventType, NewsEventType
 from src.utils.log_config import setup_logging
 from src.utils.env_config import get_db_params, get_redis_params
 from src.utils.redis_manager import redis_manager, retry_redis_operation, RedisConnectionError
+
+# Import auto_learning system
+from src.models.auto_learning import (
+    TradeJournal,
+    ErrorDetector,
+    PerformanceAnalyzer,
+    ModelAdjuster
+)
+from src.models.auto_learning.learning_orchestrator import LearningOrchestrator
 
 # Load environment variables
 load_dotenv()
@@ -211,7 +224,8 @@ class DataManager:
 class TradingBot:
     """Advanced AI-powered trading bot with multiple decision models."""
     
-    def __init__(self, initial_balance=100000.0, position_manager=None, model_trainer=None):
+    def __init__(self, initial_balance=100000.0, position_manager=None, model_trainer=None,
+                enable_auto_learning=True, auto_learning_config_path=None):
         self.initial_balance = initial_balance
         self.position_manager = position_manager
         self.order_history = []
@@ -238,6 +252,29 @@ class TradingBot:
         self.use_ai_validation = True
         self.enable_transformer = os.environ.get('USE_TRANSFORMER_MODEL', 'true').lower() == 'true'
         
+        # Auto-learning system
+        self.enable_auto_learning = enable_auto_learning
+        self.auto_learning_config_path = auto_learning_config_path
+        
+        if self.enable_auto_learning:
+            try:
+                # Create necessary directories
+                os.makedirs("data/trade_journal", exist_ok=True)
+                os.makedirs("saved_models", exist_ok=True)
+                os.makedirs("data/performance_reports", exist_ok=True)
+                
+                # Initialize the learning orchestrator
+                self.learning_orchestrator = LearningOrchestrator(
+                    config_path=self.auto_learning_config_path,
+                    db_path="data/trade_journal/trade_journal.db",
+                    models_dir="saved_models",
+                    reports_dir="data/performance_reports"
+                )
+                logging.info("Auto-learning system initialized successfully")
+            except Exception as e:
+                logging.error(f"Failed to initialize auto-learning system: {e}")
+                self.enable_auto_learning = False
+        
         # Status
         self.status = 'initialized'
         
@@ -247,7 +284,8 @@ class TradingBot:
             'max_positions': self.max_positions,
             'risk_percentage': self.risk_percentage,
             'use_ai_validation': self.use_ai_validation,
-            'enable_transformer': self.enable_transformer
+            'enable_transformer': self.enable_transformer,
+            'enable_auto_learning': self.enable_auto_learning
         }
         
         # Initialize position manager if not provided
@@ -1027,8 +1065,9 @@ class TradingBot:
     def _store_trade_entry(self, symbol: str, trade_type: str, entry_price: float, 
                           size: float, tp: float, sl: float, 
                           validated: bool, validation_confidence: float) -> None:
-        """Store trade entry in the database"""
+        """Store trade entry in the database and auto-learning journal"""
         try:
+            # Standard database storage
             conn = get_db_connection()
             if conn:
                 with conn.cursor() as cursor:
@@ -1050,8 +1089,326 @@ class TradingBot:
                     )
                     conn.commit()
                 conn.close()
+                
+            # Auto-learning system integration
+            if self.enable_auto_learning:
+                try:
+                    # Create trade data for auto-learning system
+                    entry_time = datetime.now()
+                    
+                    # Prepare market conditions information
+                    market_conditions = self._get_market_conditions(symbol)
+                    
+                    # Prepare entry signals
+                    entry_signals = {
+                        "signal_time": entry_time.isoformat(),
+                        "predicted_direction": trade_type,
+                        "validation_score": validation_confidence
+                    }
+                    
+                    # Log trade in the auto-learning system
+                    trade_data = {
+                        "symbol": symbol,
+                        "entry_time": entry_time.isoformat(),
+                        "entry_price": entry_price,
+                        "position_size": size,
+                        "direction": "BUY" if trade_type == "long" else "SELL",
+                        "strategy_name": "combined_ai_strategy",  # Or dynamically determine based on used models
+                        "model_version": "1.0.0",  # Replace with actual version tracking
+                        "entry_signals": entry_signals,
+                        "market_conditions": market_conditions
+                    }
+                    
+                    # Log the trade in auto-learning system
+                    trade_id = self.learning_orchestrator.log_trade(trade_data)
+                    logging.info(f"Trade logged in auto-learning system with ID: {trade_id}")
+                    
+                except Exception as e:
+                    logging.error(f"Error logging trade in auto-learning system: {e}")
+                    
         except Exception as e:
             logging.error(f"Error storing trade entry: {e}")
+            
+    def _get_market_conditions(self, symbol: str) -> Dict[str, Any]:
+        """Get current market conditions for auto-learning system"""
+        try:
+            if hasattr(self, 'data_manager') and symbol in self.data_manager.data:
+                data = self.data_manager.data[symbol]
+                last_row = data.iloc[-1]
+                
+                # Determine trend based on moving averages
+                if 'SMA_20' in last_row and 'SMA_50' in last_row:
+                    if last_row['SMA_20'] > last_row['SMA_50']:
+                        trend = "UPTREND"
+                    elif last_row['SMA_20'] < last_row['SMA_50']:
+                        trend = "DOWNTREND" 
+                    else:
+                        trend = "SIDEWAYS"
+                else:
+                    trend = "UNKNOWN"
+                
+                # Calculate volatility (simple implementation)
+                if len(data) > 20:
+                    recent_data = data.tail(20)
+                    volatility = recent_data['Close'].pct_change().std() * 100
+                else:
+                    volatility = 0.0
+                
+                market_conditions = {
+                    "trend": trend,
+                    "volatility": volatility,
+                    "market_type": self._determine_market_type(data),
+                    "trading_session": self._determine_trading_session()
+                }
+                
+                return market_conditions
+            
+            # Return default values if data not available
+            return {
+                "trend": "UNKNOWN",
+                "volatility": 0.0,
+                "market_type": "UNKNOWN",
+                "trading_session": "UNKNOWN"
+            }
+            
+        except Exception as e:
+            logging.error(f"Error getting market conditions: {e}")
+            return {
+                "trend": "UNKNOWN",
+                "volatility": 0.0,
+                "market_type": "UNKNOWN",
+                "trading_session": "UNKNOWN"
+            }
+    
+    def _determine_market_type(self, data: pd.DataFrame) -> str:
+        """Determine the type of market based on price action"""
+        try:
+            if len(data) < 20:
+                return "UNKNOWN"
+                
+            # Calculate volatility
+            volatility = data['Close'].pct_change().std() * 100
+            
+            # Calculate trend strength
+            if 'ADX' in data.columns:
+                adx = data['ADX'].iloc[-1]
+            else:
+                adx = 0
+                
+            # Determine market type based on volatility and trend strength
+            if volatility > 2.0:
+                if adx > 25:
+                    return "trending"
+                else:
+                    return "volatile"
+            else:
+                if adx > 25:
+                    return "trending_low_volatility"
+                else:
+                    return "ranging"
+                    
+        except Exception as e:
+            logging.error(f"Error determining market type: {e}")
+            return "UNKNOWN"
+    
+    def _determine_trading_session(self) -> str:
+        """Determine current trading session based on time"""
+        hour = datetime.now().hour
+        
+        if 3 <= hour < 12:
+            return "ASIAN"
+        elif 8 <= hour < 17:
+            return "EUROPEAN"
+        elif 13 <= hour < 22:
+            return "US"
+        else:
+            return "OVERNIGHT"
+
+    def _store_trade_exit(self, symbol: str, entry_time: datetime, exit_time: datetime, 
+                         exit_price: float, pnl: float, reason: str) -> None:
+        """Store trade exit in the database and auto-learning journal"""
+        try:
+            # Standard database storage
+            conn = get_db_connection()
+            if conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        UPDATE trade_history
+                        SET exit_time = %s, exit_price = %s, pnl = %s, reason = %s
+                        WHERE symbol = %s AND entry_time = %s
+                        """,
+                        (
+                            exit_time,
+                            exit_price,
+                            pnl,
+                            reason,
+                            symbol,
+                            entry_time
+                        )
+                    )
+                    conn.commit()
+                conn.close()
+                
+            # Auto-learning system integration
+            if self.enable_auto_learning:
+                try:
+                    # Try to find the trade in the auto-learning system
+                    # Prepare exit signals
+                    exit_signals = {
+                        "signal_time": exit_time.isoformat(),
+                        "exit_reason": reason,
+                        "profit_target": "achieved" if pnl > 0 else "not_achieved",
+                        "stop_loss": "hit" if reason == "stop_loss" else "not_hit"
+                    }
+                    
+                    # Calculate PnL percentage
+                    entry_price_value = float(entry_price) if isinstance(entry_price, (int, float)) else 0
+                    if entry_price_value > 0:
+                        pnl_percent = (pnl / entry_price_value) * 100
+                    else:
+                        pnl_percent = 0
+                    
+                    # Update trade in auto-learning system
+                    trade_update = {
+                        "symbol": symbol,
+                        "entry_time": entry_time.isoformat(),
+                        "exit_time": exit_time.isoformat(),
+                        "exit_price": exit_price,
+                        "pnl": pnl,
+                        "pnl_percent": pnl_percent,
+                        "exit_signals": exit_signals
+                    }
+                    
+                    # Update the trade in auto-learning system
+                    trade_id = self.learning_orchestrator.trade_journal.update_trade_with_exit(trade_update)
+                    logging.info(f"Trade exit logged in auto-learning system")
+                    
+                except Exception as e:
+                    logging.error(f"Error logging trade exit in auto-learning system: {e}")
+                    
+        except Exception as e:
+            logging.error(f"Error storing trade exit: {e}")
+
+    def start_real_time_scanning(self, data_manager: DataManager, interval_seconds: int = 60, 
+                                enable_incremental_learning: bool = True,
+                                auto_learning_cycle_hours: int = 24):
+        """Start real-time market scanning and trading
+        
+        Args:
+            data_manager: The data manager instance
+            interval_seconds: Seconds between each scan
+            enable_incremental_learning: Whether to update models with new data
+            auto_learning_cycle_hours: Hours between auto-learning cycles
+        """
+        logging.info(f"Starting real-time market scanning every {interval_seconds} seconds.")
+        logging.info(f"Incremental learning is {'enabled' if enable_incremental_learning else 'disabled'}")
+        
+        if self.enable_auto_learning:
+            logging.info(f"Auto-learning cycle will run every {auto_learning_cycle_hours} hours")
+        
+        # Create data directory if it doesn't exist
+        os.makedirs('logs', exist_ok=True)
+        
+        # Store settings
+        self.enable_incremental_learning = enable_incremental_learning
+        self.data_manager = data_manager
+        
+        # Last auto-learning cycle time
+        self.last_auto_learning_cycle = datetime.now()
+        
+        def scan_and_trade():
+            try:
+                logging.info("Scanning market for opportunities...")
+                
+                # Update market data
+                prev_data = {}
+                if self.enable_incremental_learning:
+                    # Store previous data snapshots to determine what's new
+                    for symbol, data in data_manager.data.items():
+                        prev_data[symbol] = data.copy()
+                
+                # Update market data
+                data_manager.update_data()
+                
+                # Perform incremental learning if enabled
+                if self.enable_incremental_learning and hasattr(self.model_trainer, 'incremental_update_models'):
+                    for symbol, current_data in data_manager.data.items():
+                        if symbol in prev_data:
+                            # Get new data since last update (may be empty if no new data)
+                            latest_timestamp = prev_data[symbol].index[-1] if not prev_data[symbol].empty else None
+                            if latest_timestamp is not None:
+                                new_data = current_data[current_data.index > latest_timestamp]
+                                
+                                if not new_data.empty:
+                                    logging.info(f"Found {len(new_data)} new data points for {symbol}")
+                                    
+                                    # Update models with new data (non-blocking)
+                                    asyncio.create_task(
+                                        self.model_trainer.incremental_update_models(symbol, new_data)
+                                    )
+                
+                # Run auto-learning cycle if needed
+                if self.enable_auto_learning:
+                    hours_since_last_cycle = (datetime.now() - self.last_auto_learning_cycle).total_seconds() / 3600
+                    if hours_since_last_cycle >= auto_learning_cycle_hours:
+                        logging.info(f"Running auto-learning cycle after {hours_since_last_cycle:.1f} hours")
+                        asyncio.create_task(self._run_auto_learning_cycle())
+                        self.last_auto_learning_cycle = datetime.now()
+                
+                # Store market snapshots
+                self._store_market_snapshots(data_manager)
+                
+                # Execute trades based on signals
+                self.execute_trades(data_manager)
+                
+                # Manage open positions
+                self.manage_open_positions(data_manager)
+                
+                # Calculate and store performance metrics
+                self._calculate_and_store_metrics()
+                
+            except Exception as e:
+                logging.error(f"Error in scan_and_trade: {e}")
+        
+        schedule.every(interval_seconds).seconds.do(scan_and_trade)
+        
+        while True:
+            try:
+                schedule.run_pending()
+                time.sleep(1)
+            except Exception as e:
+                logging.error(f"Error in scanning loop: {e}")
+                time.sleep(60)  # Wait before retrying
+                
+    async def _run_auto_learning_cycle(self):
+        """Run a full auto-learning cycle in a separate task"""
+        try:
+            if not self.enable_auto_learning:
+                return
+                
+            logging.info("Starting auto-learning cycle")
+            results = self.learning_orchestrator.run_learning_cycle()
+            
+            if results.get('status') == 'success':
+                models_adjusted = results.get('model_adjustments', {}).get('models_adjusted', 0)
+                error_types = results.get('error_analysis', {}).get('error_types', [])
+                
+                logging.info(f"Auto-learning cycle completed: {models_adjusted} models adjusted")
+                if error_types:
+                    logging.info(f"Detected error types: {', '.join(error_types)}")
+                    
+                # Apply model adjustments if needed
+                if models_adjusted > 0:
+                    logging.info("Reloading adjusted models")
+                    # Here you would reload or update your models based on adjustments
+                    # This depends on how your ModelAdjuster class modifies the models
+            else:
+                error_message = results.get('error_message', 'Unknown error')
+                logging.error(f"Auto-learning cycle failed: {error_message}")
+                
+        except Exception as e:
+            logging.error(f"Error during auto-learning cycle: {e}")
             
     def _get_bot_setting(self, setting_key: str, default_value: str = '') -> str:
         """Get a bot setting from the database"""
@@ -1207,106 +1564,6 @@ class TradingBot:
         except Exception as e:
             logging.error(f"Error updating trailing stop: {e}")
 
-    def _store_trade_exit(self, symbol: str, entry_time: datetime, exit_time: datetime, 
-                         exit_price: float, pnl: float, reason: str) -> None:
-        """Store trade exit in the database"""
-        try:
-            conn = get_db_connection()
-            if conn:
-                with conn.cursor() as cursor:
-                    cursor.execute(
-                        """
-                        UPDATE trade_history
-                        SET exit_time = %s, exit_price = %s, pnl = %s, reason = %s
-                        WHERE symbol = %s AND entry_time = %s
-                        """,
-                        (
-                            exit_time,
-                            exit_price,
-                            pnl,
-                            reason,
-                            symbol,
-                            entry_time
-                        )
-                    )
-                    conn.commit()
-                conn.close()
-        except Exception as e:
-            logging.error(f"Error storing trade exit: {e}")
-
-    def start_real_time_scanning(self, data_manager: DataManager, interval_seconds: int = 60, enable_incremental_learning: bool = True):
-        """Start real-time market scanning and trading
-        
-        Args:
-            data_manager: The data manager instance
-            interval_seconds: Seconds between each scan
-            enable_incremental_learning: Whether to update models with new data
-        """
-        logging.info(f"Starting real-time market scanning every {interval_seconds} seconds.")
-        logging.info(f"Incremental learning is {'enabled' if enable_incremental_learning else 'disabled'}")
-        
-        # Create data directory if it doesn't exist
-        os.makedirs('logs', exist_ok=True)
-        
-        # Store settings
-        self.enable_incremental_learning = enable_incremental_learning
-        
-        def scan_and_trade():
-            try:
-                logging.info("Scanning market for opportunities...")
-                
-                # Update market data
-                prev_data = {}
-                if self.enable_incremental_learning:
-                    # Store previous data snapshots to determine what's new
-                    for symbol, data in data_manager.data.items():
-                        prev_data[symbol] = data.copy()
-                
-                # Update market data
-                data_manager.update_data()
-                
-                # Perform incremental learning if enabled
-                if self.enable_incremental_learning and hasattr(self.model_trainer, 'incremental_update_models'):
-                    for symbol, current_data in data_manager.data.items():
-                        if symbol in prev_data:
-                            # Get new data since last update (may be empty if no new data)
-                            latest_timestamp = prev_data[symbol].index[-1] if not prev_data[symbol].empty else None
-                            if latest_timestamp is not None:
-                                new_data = current_data[current_data.index > latest_timestamp]
-                                
-                                if not new_data.empty:
-                                    logging.info(f"Found {len(new_data)} new data points for {symbol}")
-                                    
-                                    # Update models with new data (non-blocking)
-                                    asyncio.create_task(
-                                        self.model_trainer.incremental_update_models(symbol, new_data)
-                                    )
-                
-                # Store market snapshots
-                self._store_market_snapshots(data_manager)
-                
-                # Execute trades based on signals
-                self.execute_trades(data_manager)
-                
-                # Manage open positions
-                self.manage_open_positions(data_manager)
-                
-                # Calculate and store performance metrics
-                self._calculate_and_store_metrics()
-                
-            except Exception as e:
-                logging.error(f"Error in scan_and_trade: {e}")
-        
-        schedule.every(interval_seconds).seconds.do(scan_and_trade)
-        
-        while True:
-            try:
-                schedule.run_pending()
-                time.sleep(1)
-            except Exception as e:
-                logging.error(f"Error in scanning loop: {e}")
-                time.sleep(60)  # Wait before retrying
-                
     def _store_market_snapshots(self, data_manager: DataManager) -> None:
         """Store market data snapshots in the database"""
         try:
@@ -1408,52 +1665,33 @@ class TradingBot:
             
     def _store_performance_metrics(self, date, balance, equity, daily_pnl, total_trades,
                                  winning_trades, losing_trades, win_rate, average_win,
-                                 average_loss, profit_factor):
+                                 average_loss, profit_factor) -> None:
         """Store performance metrics in the database"""
         try:
             conn = get_db_connection()
             if conn:
                 with conn.cursor() as cursor:
-                    # Check if we already have a record for today
                     cursor.execute(
-                        "SELECT id FROM performance_metrics WHERE date = %s",
-                        (date,)
+                        """
+                        INSERT INTO performance_metrics 
+                        (date, balance, equity, daily_pnl, total_trades, winning_trades,
+                        losing_trades, win_rate, average_win, average_loss, profit_factor)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            date,
+                            balance,
+                            equity,
+                            daily_pnl,
+                            total_trades,
+                            winning_trades,
+                            losing_trades,
+                            win_rate,
+                            average_win,
+                            average_loss,
+                            profit_factor
+                        )
                     )
-                    result = cursor.fetchone()
-                    
-                    if result:
-                        # Update existing record
-                        cursor.execute(
-                            """
-                            UPDATE performance_metrics
-                            SET balance = %s, equity = %s, daily_pnl = %s,
-                                total_trades = %s, winning_trades = %s, losing_trades = %s,
-                                win_rate = %s, average_win = %s, average_loss = %s,
-                                profit_factor = %s, updated_at = %s
-                            WHERE date = %s
-                            """,
-                            (
-                                balance, equity, daily_pnl,
-                                total_trades, winning_trades, losing_trades,
-                                win_rate, average_win, average_loss,
-                                profit_factor, datetime.now(), date
-                            )
-                        )
-                    else:
-                        # Insert new record
-                        cursor.execute(
-                            """
-                            INSERT INTO performance_metrics
-                            (date, balance, equity, daily_pnl, total_trades, winning_trades,
-                            losing_trades, win_rate, average_win, average_loss, profit_factor)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                            """,
-                            (
-                                date, balance, equity, daily_pnl,
-                                total_trades, winning_trades, losing_trades,
-                                win_rate, average_win, average_loss, profit_factor
-                            )
-                        )
                     conn.commit()
                 conn.close()
         except Exception as e:
@@ -1583,8 +1821,15 @@ if __name__ == "__main__":
         symbols = ["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA"]
         data_manager = DataManager(symbols)
         
-        # Create and initialize trading bot
-        trading_bot = TradingBot(initial_balance=100000)
+        # Set up auto-learning configuration
+        auto_learning_config_path = "src/config/auto_learning_config.json"
+        
+        # Create and initialize trading bot with auto-learning
+        trading_bot = TradingBot(
+            initial_balance=100000,
+            enable_auto_learning=True,
+            auto_learning_config_path=auto_learning_config_path
+        )
         
         # Train all models
         trading_bot.train_all_models(data_manager)
@@ -1599,8 +1844,13 @@ if __name__ == "__main__":
             max_positions=5
         )
         
-        # Start real-time trading
-        trading_bot.start_real_time_scanning(data_manager)
+        # Start real-time trading with auto-learning cycles every 12 hours
+        trading_bot.start_real_time_scanning(
+            data_manager,
+            interval_seconds=60,
+            enable_incremental_learning=True,
+            auto_learning_cycle_hours=12
+        )
         
     except Exception as e:
         logging.error(f"Fatal error in main: {e}")

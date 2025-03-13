@@ -11,6 +11,7 @@ import sys
 import logging
 import json
 from datetime import datetime, timedelta
+import argparse
 
 # Ajouter le répertoire parent au chemin de recherche pour pouvoir importer les modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -225,32 +226,91 @@ def demo_auto_learning():
         logger.error(f"Erreur lors de la démonstration: {e}")
         return {"status": "error", "error_message": str(e)}
 
+def demo_error_detection_with_claude():
+    """Démontre l'utilisation du détecteur d'erreurs avec Claude 3.7 via OpenRouter"""
+    try:
+        # 1. Créer une instance de TradeJournal
+        trade_journal = TradeJournal(db_path="data/demo_trade_journal.db")
+        
+        # 2. Créer des transactions d'exemple
+        create_sample_trades(trade_journal)
+        
+        # 3. Configurer la clé API OpenRouter (remplacer par votre clé)
+        api_key = input("Entrez votre clé API OpenRouter pour utiliser Claude 3.7: ").strip()
+        if not api_key:
+            logger.warning("Aucune clé API fournie. Analyse sans IA.")
+            use_ai = False
+        else:
+            # Configurer le fichier .env avec la clé API
+            ErrorDetector.configure_openrouter_api(api_key)
+            use_ai = True
+        
+        # 4. Initialiser le détecteur d'erreurs
+        error_detector = ErrorDetector(trade_journal=trade_journal, use_ai_analysis=use_ai)
+        
+        # 5. Analyser les transactions perdantes
+        logger.info("Analyse des transactions perdantes avec détection d'erreurs...")
+        error_results = error_detector.analyze_losing_trades(days=60)
+        
+        if 'error' in error_results:
+            logger.warning(f"Erreur lors de l'analyse: {error_results['error']}")
+            return error_results
+        
+        # 6. Afficher les résultats
+        logger.info(f"Analyse terminée: {len(error_results.get('detected_errors', []))} transactions analysées")
+        
+        # Afficher les patterns d'erreur
+        logger.info("\n=== PATTERNS D'ERREUR ===")
+        for error_type, data in error_results.get('error_patterns', {}).items():
+            logger.info(f"{error_type}: {data['count']} occurrences, perte moyenne: {data['avg_loss']:.2f}")
+        
+        # Afficher les recommandations
+        logger.info("\n=== RECOMMANDATIONS ===")
+        for rec in error_results.get('recommendations', []):
+            logger.info(f"- {rec.get('error_type')}: {rec.get('description')}")
+            
+            # Afficher les actions recommandées
+            actions = rec.get('actions', [])
+            if isinstance(actions, list):
+                for i, action in enumerate(actions, 1):
+                    logger.info(f"  Action {i}: {action}")
+            
+        # 7. Afficher les informations sur l'analyse IA si disponible
+        if 'analysis_method' in error_results and 'Claude' in error_results['analysis_method']:
+            logger.info("\n=== ANALYSE IA AVEC CLAUDE 3.7 ===")
+            logger.info(f"Méthode d'analyse: {error_results['analysis_method']}")
+            
+            # Afficher les insights de Claude
+            ai_analysis = error_results.get('ai_analysis', {})
+            if 'insights' in ai_analysis:
+                logger.info("\nInsights de Claude 3.7:")
+                for insight in ai_analysis['insights']:
+                    logger.info(f"- {insight}")
+        
+        logger.info("\nDémonstration du détecteur d'erreurs terminée avec succès")
+        return error_results
+        
+    except Exception as e:
+        logger.error(f"Erreur lors de la démonstration: {e}")
+        return {"status": "error", "error_message": str(e)}
+
 if __name__ == "__main__":
     logger.info("=== Démarrage de la démonstration du système d'auto-apprentissage ===")
     
-    results = demo_auto_learning()
+    # Ajouter un argument pour choisir la démo
+    parser = argparse.ArgumentParser(description="Démonstration du système d'auto-apprentissage")
+    parser.add_argument('--demo', choices=['complete', 'error-detection'], 
+                      default='complete', help='Type de démonstration à exécuter')
+    args = parser.parse_args()
     
-    # Afficher un résumé des résultats
-    if results.get('status') == 'success':
-        print("\n=== Résumé de la démonstration ===")
-        print(f"Statut: {results.get('status')}")
-        
-        if 'performance_analysis' in results:
-            perf = results['performance_analysis']
-            print(f"Transactions analysées: {perf.get('total_trades', 0)}")
-            print(f"Taux de réussite: {perf.get('win_rate', 0) * 100:.2f}%")
-        
-        if 'error_analysis' in results:
-            errors = results['error_analysis']
-            print(f"Erreurs détectées: {errors.get('total_errors', 0)}")
-            print(f"Types d'erreurs: {', '.join(errors.get('error_types', []))}")
-        
-        if 'model_adjustments' in results:
-            adjustments = results['model_adjustments']
-            print(f"Modèles ajustés: {adjustments.get('models_adjusted', 0)}")
-            
-        print("\nLes rapports détaillés et visualisations sont disponibles dans le répertoire data/demo_reports/")
+    if args.demo == 'error-detection':
+        # Exécuter uniquement la démo du détecteur d'erreurs avec Claude 3.7
+        logger.info("Exécution de la démo du détecteur d'erreurs avec Claude 3.7")
+        results = demo_error_detection_with_claude()
     else:
-        print(f"\nLa démonstration a échoué: {results.get('error_message', 'Erreur inconnue')}")
+        # Exécuter la démo complète d'auto-apprentissage
+        logger.info("Exécution de la démo complète d'auto-apprentissage")
+        results = demo_auto_learning()
     
-    logger.info("=== Fin de la démonstration ===") 
+    logger.info(f"Résultats: {results.get('status', 'completed')}")
+    logger.info("=== Démonstration terminée ===") 

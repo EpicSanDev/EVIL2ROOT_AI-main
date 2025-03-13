@@ -5,8 +5,14 @@ import logging
 from datetime import datetime, timedelta
 import json
 import os
+import requests
+from dotenv import load_dotenv
+import openai
 
 from .trade_journal import TradeJournal
+
+# Charger les variables d'environnement
+load_dotenv()
 
 class ErrorDetector:
     """
@@ -33,15 +39,32 @@ class ErrorDetector:
         'TECHNICAL_ISSUE': 'Problème technique lors de l\'exécution'
     }
     
-    def __init__(self, trade_journal: TradeJournal):
+    def __init__(self, trade_journal: TradeJournal, use_ai_analysis: bool = True):
         """
         Initialise le détecteur d'erreurs.
         
         Args:
             trade_journal: Instance de TradeJournal pour accéder aux données
+            use_ai_analysis: Active l'analyse par IA via OpenRouter (Claude 3.7)
         """
         self.trade_journal = trade_journal
         self.logger = logging.getLogger(__name__)
+        self.use_ai_analysis = use_ai_analysis
+        
+        # Configuration pour OpenRouter
+        self.openai_api_key = os.getenv("OPENROUTER_API_KEY")
+        self.openai_base_url = "https://openrouter.ai/api/v1"
+        self.claude_model = "anthropic/claude-3-7-sonnet"
+        
+        if self.use_ai_analysis:
+            if not self.openai_api_key:
+                self.logger.warning("Clé API OpenRouter non trouvée. L'analyse IA est désactivée.")
+                self.use_ai_analysis = False
+            else:
+                # Configuration du client OpenAI pour OpenRouter
+                openai.api_key = self.openai_api_key
+                openai.base_url = self.openai_base_url
+                self.logger.info("Client OpenRouter initialisé avec succès pour Claude 3.7")
     
     def analyze_losing_trades(self, days: int = 90) -> Dict[str, Any]:
         """
@@ -80,8 +103,30 @@ class ErrorDetector:
             'error_patterns': {},
             'symbol_errors': {},
             'time_patterns': {},
-            'detected_errors': []
+            'detected_errors': [],
+            'ai_analysis': {}  # Pour stocker l'analyse de Claude 3.7
         }
+        
+        # Convertir les transactions en liste de dictionnaires pour l'analyse IA
+        trades_data = losing_trades_df.to_dict('records')
+        
+        # Utiliser Claude 3.7 pour l'analyse globale si activé
+        if self.use_ai_analysis:
+            self.logger.info("Démarrage de l'analyse IA avec Claude 3.7 via OpenRouter")
+            ai_analysis = self.analyze_errors_with_claude(trades_data)
+            results['ai_analysis'] = ai_analysis
+            
+            # Si l'analyse IA a réussi et contient des recommandations détaillées
+            if 'error' not in ai_analysis and 'recommendations' in ai_analysis:
+                # Ajouter un message indiquant que l'analyse IA a été utilisée
+                results['analysis_method'] = 'Claude 3.7 via OpenRouter'
+                self.logger.info("Analyse IA complétée avec succès et intégrée aux résultats")
+            else:
+                # Revenir à l'analyse standard si l'IA n'a pas donné de bons résultats
+                self.logger.warning("L'analyse IA n'a pas abouti, utilisation de l'analyse standard")
+        
+        # Analyse standard (toujours effectuée pour des questions de fiabilité)
+        self.logger.info("Démarrage de l'analyse standard")
         
         # Détecter les erreurs courantes dans chaque transaction
         for _, trade in losing_trades_df.iterrows():
@@ -165,6 +210,10 @@ class ErrorDetector:
             reverse=True
         ))
         
+        # Générer des recommandations améliorées
+        results['recommendations'] = self._generate_enhanced_recommendations(results)
+        
+        self.logger.info(f"Analyse des erreurs terminée: {len(results['error_patterns'])} types d'erreurs identifiés")
         return results
     
     def _detect_errors_in_trade(self, trade: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -183,6 +232,15 @@ class ErrorDetector:
         entry_signals = trade.get('entry_signals', {})
         exit_signals = trade.get('exit_signals', {})
         market_conditions = trade.get('market_conditions', {})
+        
+        # Utiliser Claude 3.7 via OpenRouter si activé
+        if self.use_ai_analysis:
+            ai_errors = self._analyze_trade_with_claude(trade, entry_signals, exit_signals, market_conditions)
+            if ai_errors:
+                return ai_errors
+        
+        # Continuer avec les vérifications standards si l'analyse IA n'est pas disponible
+        # ou n'a pas donné de résultats
         
         # 1. Vérifier les erreurs de timing
         if self._check_timing_error(trade, entry_signals, exit_signals):
@@ -579,4 +637,254 @@ class ErrorDetector:
         # Retourner les suggestions pour ce type d'erreur, ou une liste vide si non trouvé
         return suggestions.get(error_type, ["Analyser plus en détail ce type d'erreur", 
                                            "Consulter les logs détaillés pour identifier les causes",
-                                           "Développer des règles spécifiques pour prévenir cette erreur"]) 
+                                           "Développer des règles spécifiques pour prévenir cette erreur"])
+
+    def _analyze_trade_with_claude(self, trade: Dict[str, Any], 
+                                  entry_signals: Dict, 
+                                  exit_signals: Dict, 
+                                  market_conditions: Dict) -> List[Dict[str, Any]]:
+        """
+        Analyse une transaction avec Claude 3.7 via OpenRouter pour identifier les erreurs.
+        
+        Args:
+            trade: Données de la transaction
+            entry_signals: Signaux d'entrée
+            exit_signals: Signaux de sortie
+            market_conditions: Conditions de marché
+            
+        Returns:
+            Liste des erreurs identifiées par l'IA
+        """
+        try:
+            # Préparer les données de transaction pour l'analyse
+            trade_data = {
+                "symbol": trade.get('symbol', 'Unknown'),
+                "direction": trade.get('direction', 'Unknown'),
+                "entry_time": str(trade.get('entry_time', '')),
+                "exit_time": str(trade.get('exit_time', '')),
+                "entry_price": trade.get('entry_price', 0),
+                "exit_price": trade.get('exit_price', 0),
+                "position_size": trade.get('position_size', 0),
+                "pnl": trade.get('pnl', 0),
+                "pnl_percent": trade.get('pnl_percent', 0),
+                "entry_signals": entry_signals,
+                "exit_signals": exit_signals,
+                "market_conditions": market_conditions
+            }
+            
+            # Construire le prompt pour Claude
+            prompt = f"""
+            Analyse cette transaction de trading qui a généré une perte et identifie les principales erreurs.
+            
+            TRANSACTION:
+            {json.dumps(trade_data, indent=2)}
+            
+            LISTE DES TYPES D'ERREURS POSSIBLES:
+            {json.dumps(self.ERROR_TYPES, indent=2)}
+            
+            INSTRUCTIONS:
+            1. Analyse en profondeur la transaction en te basant sur les signaux d'entrée/sortie et les conditions de marché
+            2. Identifie au maximum 3 erreurs potentielles qui ont pu causer cette perte
+            3. Pour chaque erreur identifiée, indique:
+               - Le type d'erreur (utilise les types fournis ci-dessus)
+               - Une description détaillée de pourquoi tu considères cela comme une erreur
+               - Une sévérité de 1 à 5 (5 étant le plus grave)
+            4. Explique brièvement le raisonnement derrière chaque erreur identifiée
+            
+            RÉPONDS UNIQUEMENT AVEC UN OBJET JSON contenant une liste d'erreurs avec les champs 'error_type', 'description', 'severity' et 'reasoning'.
+            """
+            
+            # Appeler Claude 3.7 via OpenRouter
+            response = openai.chat.completions.create(
+                model=self.claude_model,
+                messages=[
+                    {"role": "system", "content": "Tu es un expert en trading quantitatif qui analyse les erreurs dans les transactions de trading."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.2,
+                response_format={"type": "json_object"},
+                headers={
+                    "HTTP-Referer": "https://evil2root.ai",
+                    "X-Title": "EVIL2ROOT AI Trading System"
+                }
+            )
+            
+            # Extraire et parser la réponse
+            ai_response = response.choices[0].message.content
+            self.logger.info(f"Réponse reçue de Claude 3.7 via OpenRouter")
+            
+            try:
+                ai_errors = json.loads(ai_response).get('errors', [])
+                self.logger.info(f"Claude a identifié {len(ai_errors)} erreurs pour la transaction {trade.get('trade_id', 'Unknown')}")
+                return ai_errors
+            except json.JSONDecodeError:
+                self.logger.error(f"Erreur lors du parsing de la réponse JSON de Claude: {ai_response}")
+                return []
+                
+        except Exception as e:
+            self.logger.error(f"Erreur lors de l'analyse avec Claude 3.7: {str(e)}")
+            return []  # En cas d'erreur, revenir à l'analyse standard
+            
+    def analyze_errors_with_claude(self, trades_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Analyse un ensemble de transactions perdantes avec Claude 3.7 pour identifier des patterns d'erreur.
+        
+        Args:
+            trades_data: Liste des transactions à analyser
+            
+        Returns:
+            Analyse détaillée des erreurs avec recommandations
+        """
+        if not self.use_ai_analysis or not trades_data:
+            return {"error": "Analyse IA non disponible ou aucune transaction à analyser"}
+            
+        try:
+            # Limiter le nombre de transactions pour éviter des prompts trop longs
+            max_trades = 10
+            sample_trades = trades_data[:max_trades] if len(trades_data) > max_trades else trades_data
+            
+            # Construire le prompt pour l'analyse globale
+            prompt = f"""
+            Analyse ces {len(sample_trades)} transactions de trading perdantes et identifie les patterns d'erreur récurrents.
+            
+            TRANSACTIONS:
+            {json.dumps(sample_trades, indent=2)}
+            
+            TYPES D'ERREURS CONNUS:
+            {json.dumps(self.ERROR_TYPES, indent=2)}
+            
+            INSTRUCTIONS:
+            1. Analyse l'ensemble des transactions pour identifier les patterns d'erreur récurrents
+            2. Détermine les 3-5 types d'erreurs les plus fréquents ou impactants
+            3. Pour chaque type d'erreur identifié, fournis:
+               - Le type d'erreur (utilise les types fournis ci-dessus)
+               - La fréquence d'apparition dans les transactions
+               - L'impact moyen estimé sur les performances
+               - Des recommandations concrètes pour corriger ce type d'erreur
+            4. Fournis une analyse globale des facteurs qui contribuent le plus aux pertes
+            
+            RÉPONDS UNIQUEMENT AVEC UN OBJET JSON contenant une liste des erreurs identifiées et une section de recommandations.
+            """
+            
+            # Appeler Claude 3.7 via OpenRouter
+            response = openai.chat.completions.create(
+                model=self.claude_model,
+                messages=[
+                    {"role": "system", "content": "Tu es un expert en trading quantitatif spécialisé dans l'analyse des erreurs et l'amélioration des systèmes de trading."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                response_format={"type": "json_object"},
+                headers={
+                    "HTTP-Referer": "https://evil2root.ai",
+                    "X-Title": "EVIL2ROOT AI Trading System"
+                }
+            )
+            
+            # Extraire et parser la réponse
+            ai_response = response.choices[0].message.content
+            
+            try:
+                analysis_results = json.loads(ai_response)
+                self.logger.info(f"Analyse globale des erreurs complétée par Claude 3.7")
+                return analysis_results
+            except json.JSONDecodeError:
+                self.logger.error(f"Erreur lors du parsing de la réponse JSON de l'analyse globale: {ai_response}")
+                return {"error": "Erreur lors de l'analyse, impossible de parser la réponse"}
+                
+        except Exception as e:
+            self.logger.error(f"Erreur lors de l'analyse globale avec Claude 3.7: {str(e)}")
+            return {"error": f"Erreur lors de l'analyse: {str(e)}"}
+
+    def _generate_enhanced_recommendations(self, analysis_results: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Génère des recommandations améliorées basées sur l'analyse standard et l'analyse IA.
+        
+        Args:
+            analysis_results: Résultats de l'analyse des transactions
+            
+        Returns:
+            Liste de recommandations détaillées
+        """
+        recommendations = []
+        
+        # Utiliser les recommandations de Claude si disponibles
+        if 'ai_analysis' in analysis_results and 'recommendations' in analysis_results['ai_analysis']:
+            ai_recommendations = analysis_results['ai_analysis']['recommendations']
+            if isinstance(ai_recommendations, list) and ai_recommendations:
+                self.logger.info("Utilisation des recommandations générées par Claude 3.7")
+                return ai_recommendations
+            elif isinstance(ai_recommendations, dict):
+                # Conversion du dictionnaire en liste si nécessaire
+                rec_list = []
+                for key, value in ai_recommendations.items():
+                    if isinstance(value, dict):
+                        value['error_type'] = key
+                        rec_list.append(value)
+                    elif isinstance(value, str):
+                        rec_list.append({
+                            'error_type': key,
+                            'recommendation': value
+                        })
+                if rec_list:
+                    return rec_list
+        
+        # Sinon, générer des recommandations basées sur l'analyse standard
+        error_patterns = analysis_results.get('error_patterns', {})
+        
+        for error_type, data in error_patterns.items():
+            if data['count'] > 0:
+                suggested_actions = self._get_suggested_actions(error_type)
+                recommendation = {
+                    'error_type': error_type,
+                    'description': data['description'],
+                    'frequency': data['count'],
+                    'avg_loss': data['avg_loss'],
+                    'actions': suggested_actions
+                }
+                recommendations.append(recommendation)
+        
+        # Trier par fréquence d'occurrence
+        recommendations = sorted(recommendations, key=lambda x: x['frequency'], reverse=True)
+        
+        return recommendations
+
+    @staticmethod
+    def configure_openrouter_api(api_key: str, env_file_path: str = ".env") -> bool:
+        """
+        Configure le fichier d'environnement pour l'API OpenRouter.
+        
+        Args:
+            api_key: Clé API OpenRouter
+            env_file_path: Chemin vers le fichier d'environnement
+            
+        Returns:
+            True si la configuration a réussi, False sinon
+        """
+        try:
+            # Vérifier si le fichier existe
+            env_exists = os.path.exists(env_file_path)
+            
+            # Lire le contenu existant s'il y en a
+            existing_content = {}
+            if env_exists:
+                with open(env_file_path, 'r') as env_file:
+                    for line in env_file:
+                        if line.strip() and '=' in line:
+                            key, value = line.strip().split('=', 1)
+                            existing_content[key] = value
+            
+            # Mettre à jour la clé API
+            existing_content['OPENROUTER_API_KEY'] = f'"{api_key}"'
+            
+            # Écrire le fichier mis à jour
+            with open(env_file_path, 'w') as env_file:
+                for key, value in existing_content.items():
+                    env_file.write(f"{key}={value}\n")
+            
+            logging.getLogger(__name__).info(f"Configuration OpenRouter enregistrée dans {env_file_path}")
+            return True
+            
+        except Exception as e:
+            logging.getLogger(__name__).error(f"Erreur lors de la configuration OpenRouter: {str(e)}")
+            return False 
