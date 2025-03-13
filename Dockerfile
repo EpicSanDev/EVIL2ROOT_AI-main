@@ -74,12 +74,9 @@ RUN mkdir -p data logs saved_models && \
 # Copy application code
 COPY . .
 
-# Make scripts executable
-RUN chmod +x start_daily_analysis.py \
-    docker-entrypoint.sh \
-    start_market_scheduler.sh \
-    stop_market_scheduler.sh \
-    analysis-bot-entrypoint.sh
+# Make scripts executable and prepare environment
+RUN chmod +x docker/prepare-scripts.sh && \
+    ./docker/prepare-scripts.sh
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
