@@ -1,0 +1,23 @@
+# Crontab pour EVIL2ROOT Trading Bot
+# Copiez ce fichier avec les modifications nécessaires et chargez-le avec: crontab crontab.example
+
+# Format: minute heure jour_du_mois mois jour_de_la_semaine commande
+
+# Environnement
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+WORKDIR=/path/to/EVIL2ROOT_AI-main
+PYTHONPATH=/path/to/EVIL2ROOT_AI-main
+MAILTO=admin@example.com
+
+# Vérifier les abonnements expirants et envoyer des notifications tous les jours à 10h00
+0 10 * * * cd $WORKDIR && python3 app/scripts/subscription_checker.py >> $WORKDIR/logs/cron_subscription_checker.log 2>&1
+
+# Envoyer une mise à jour quotidienne du marché à tous les utilisateurs premium à 18h00
+0 18 * * 1-5 cd $WORKDIR && python3 app/scripts/send_notification.py bulk --message "Consultez votre tableau de bord pour les analyses quotidiennes du marché!" --subscription premium >> $WORKDIR/logs/cron_notifications.log 2>&1
+
+# Redémarrer le bot Telegram chaque jour à 4h00 pour assurer sa stabilité
+0 4 * * * cd $WORKDIR && pkill -f "python.*app/scripts/run_telegram_bot.py" || true; sleep 5; python3 app/scripts/run_telegram_bot.py >> $WORKDIR/logs/telegram_bot_restart.log 2>&1 &
+
+# Sauvegarde de la base de données tous les jours à 2h00
+0 2 * * * cd $WORKDIR && pg_dump -U $DB_USER -h $DB_HOST -d $DB_NAME > $WORKDIR/backups/db_backup_$(date +\%Y\%m\%d).sql 2>> $WORKDIR/logs/backup.log 

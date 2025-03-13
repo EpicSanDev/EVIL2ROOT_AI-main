@@ -16,5 +16,4 @@ resources:
   - adminer-deployment.yaml
   - hpa.yaml
   - network-policies.yaml
-  - pod-disruption-budgets.yaml
-  - database-backup.yaml 
+  - pod-disruption-budgets.yaml 

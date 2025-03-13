@@ -10,7 +10,7 @@ spec:
   resources:
     requests:
       storage: 10Gi
-  storageClassName: standard
+  storageClassName: do-block-storage
 ---
 # PersistentVolumeClaim pour Redis
 apiVersion: v1
@@ -24,7 +24,7 @@ spec:
   resources:
     requests:
       storage: 5Gi
-  storageClassName: standard
+  storageClassName: do-block-storage
 ---
 # PersistentVolumeClaim pour les données de l'application
 apiVersion: v1
@@ -34,11 +34,11 @@ metadata:
   namespace: evil2root-trading
 spec:
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   resources:
     requests:
       storage: 20Gi
-  storageClassName: standard
+  storageClassName: do-block-storage
 ---
 # PersistentVolumeClaim pour les logs
 apiVersion: v1
@@ -48,11 +48,11 @@ metadata:
   namespace: evil2root-trading
 spec:
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   resources:
     requests:
       storage: 10Gi
-  storageClassName: standard
+  storageClassName: do-block-storage
 ---
 # PersistentVolumeClaim pour les modèles sauvegardés
 apiVersion: v1
@@ -62,11 +62,11 @@ metadata:
   namespace: evil2root-trading
 spec:
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   resources:
     requests:
       storage: 20Gi
-  storageClassName: standard
+  storageClassName: do-block-storage
 ---
 # PersistentVolumeClaim pour Prometheus
 apiVersion: v1
@@ -80,7 +80,7 @@ spec:
   resources:
     requests:
       storage: 10Gi
-  storageClassName: standard
+  storageClassName: do-block-storage
 ---
 # PersistentVolumeClaim pour Grafana
 apiVersion: v1
@@ -94,4 +94,18 @@ spec:
   resources:
     requests:
       storage: 5Gi
-  storageClassName: standard 
+  storageClassName: do-block-storage
+---
+# PersistentVolumeClaim pour les sauvegardes PostgreSQL
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-backups
+  namespace: evil2root-trading
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: do-block-storage 

@@ -26,11 +26,20 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "9090"
         prometheus.io/path: "/metrics"
+        checksum/config: "${CHECKSUM_CONFIG}"
+        checksum/secrets: "${CHECKSUM_SECRETS}"
+        timestamp: "${TIMESTAMP}"
     spec:
       terminationGracePeriodSeconds: 60
+      imagePullSecrets:
+      - name: registry-epicsandev
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: web
-        image: evil2root/trading-bot:latest
+        image: registry.digitalocean.com/epicsandev/evil2root-ai:latest
         imagePullPolicy: Always
         args: ["web-with-scheduler"]
         ports:
@@ -68,6 +77,14 @@ spec:
           value: "postgres"
         - name: REDIS_HOST
           value: "redis"
+        - name: TZ
+          value: "UTC"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
         resources:
           requests:
             memory: "1Gi"
@@ -82,6 +99,9 @@ spec:
           mountPath: /app/logs
         - name: saved-models
           mountPath: /app/saved_models
+        - name: tmp-volume
+          mountPath: /tmp
+          readOnly: false
         livenessProbe:
           httpGet:
             path: /health
@@ -121,6 +141,21 @@ spec:
                   app: trading-bot
                   component: web
               topologyKey: "kubernetes.io/hostname"
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node-role.kubernetes.io/worker
+                operator: Exists
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: "topology.kubernetes.io/zone"
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: trading-bot
+            component: web
       volumes:
       - name: app-data
         persistentVolumeClaim:
@@ -131,6 +166,8 @@ spec:
       - name: saved-models
         persistentVolumeClaim:
           claimName: saved-models
+      - name: tmp-volume
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -178,6 +215,10 @@ metadata:
     nginx.ingress.kubernetes.io/enable-xss-protection: "true"
     nginx.ingress.kubernetes.io/xss-protection-mode: "block"
     nginx.ingress.kubernetes.io/x-content-type-options: "nosniff"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'";
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-protocols: "TLSv1.2 TLSv1.3"
 spec:
   tls:
   - hosts:

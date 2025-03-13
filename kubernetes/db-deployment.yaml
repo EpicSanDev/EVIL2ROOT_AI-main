@@ -36,6 +36,8 @@ spec:
             secretKeyRef:
               name: trading-bot-secrets
               key: DB_NAME
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
         resources:
           requests:
             memory: "512Mi"

@@ -3,23 +3,47 @@ kind: Deployment
 metadata:
   name: analysis-bot
   namespace: evil2root-trading
+  labels:
+    app: trading-bot
+    component: analysis-bot
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: trading-bot
       component: analysis-bot
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   template:
     metadata:
       labels:
         app: trading-bot
         component: analysis-bot
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+        checksum/config: "${CHECKSUM_CONFIG}"
+        checksum/secrets: "${CHECKSUM_SECRETS}"
+        timestamp: "${TIMESTAMP}"
     spec:
+      imagePullSecrets:
+      - name: registry-epicsandev
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: analysis-bot
-        image: evil2root/trading-bot:latest
+        image: registry.digitalocean.com/epicsandev/evil2root-ai:latest
         imagePullPolicy: Always
         command: ["/app/analysis-bot-entrypoint.sh"]
+        ports:
+        - containerPort: 9090
+          name: metrics
         env:
         - name: FLASK_APP
           valueFrom:
@@ -50,6 +74,14 @@ spec:
           value: "postgres"
         - name: REDIS_HOST
           value: "redis"
+        - name: TZ
+          value: "UTC"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
         resources:
           requests:
             memory: "1Gi"
@@ -64,6 +96,41 @@ spec:
           mountPath: /app/logs
         - name: saved-models
           mountPath: /app/saved_models
+        - name: tmp-volume
+          mountPath: /tmp
+          readOnly: false
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - ps aux | grep "python" | grep -v grep
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - test -f /app/logs/analysis_bot_ready.txt
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 10"]
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node-role.kubernetes.io/worker
+                operator: Exists
       volumes:
       - name: app-data
         persistentVolumeClaim:
@@ -73,4 +140,6 @@ spec:
           claimName: app-logs
       - name: saved-models
         persistentVolumeClaim:
-          claimName: saved-models 
+          claimName: saved-models
+      - name: tmp-volume
+        emptyDir: {} 

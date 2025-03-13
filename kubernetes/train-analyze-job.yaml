@@ -3,13 +3,29 @@ kind: Job
 metadata:
   name: train-and-analyze
   namespace: evil2root-trading
+  labels:
+    app: trading-bot
+    component: train-analyze
 spec:
   ttlSecondsAfterFinished: 86400  # Les jobs sont conservés pendant 24 heures après leur fin
+  backoffLimit: 3
   template:
+    metadata:
+      labels:
+        app: trading-bot
+        component: train-analyze
+      annotations:
+        timestamp: "${TIMESTAMP}"
     spec:
+      imagePullSecrets:
+      - name: registry-epicsandev
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: train-analyze
-        image: evil2root/trading-bot:latest
+        image: registry.digitalocean.com/epicsandev/evil2root-ai:latest
         imagePullPolicy: Always
         args: ["train-and-analyze"]
         env:
@@ -44,6 +60,14 @@ spec:
           value: "redis"
         - name: TF_FORCE_GPU_ALLOW_GROWTH
           value: "true"
+        - name: TZ
+          value: "UTC"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
         resources:
           requests:
             memory: "4Gi"
@@ -58,6 +82,9 @@ spec:
           mountPath: /app/logs
         - name: saved-models
           mountPath: /app/saved_models
+        - name: tmp-volume
+          mountPath: /tmp
+          readOnly: false
       volumes:
       - name: app-data
         persistentVolumeClaim:
@@ -68,24 +95,52 @@ spec:
       - name: saved-models
         persistentVolumeClaim:
           claimName: saved-models
+      - name: tmp-volume
+        emptyDir: {}
       restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node-role.kubernetes.io/worker
+                operator: Exists
 ---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: scheduled-train-analyze
   namespace: evil2root-trading
+  labels:
+    app: trading-bot
+    component: train-analyze-cron
 spec:
   schedule: "0 0 * * *"  # Tous les jours à minuit
   concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 2
   jobTemplate:
     spec:
       ttlSecondsAfterFinished: 86400  # Les jobs sont conservés pendant 24 heures après leur fin
+      backoffLimit: 3
       template:
+        metadata:
+          labels:
+            app: trading-bot
+            component: train-analyze
+          annotations:
+            timestamp: "${TIMESTAMP}"
         spec:
+          imagePullSecrets:
+          - name: registry-epicsandev
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
           containers:
           - name: train-analyze
-            image: evil2root/trading-bot:latest
+            image: registry.digitalocean.com/epicsandev/evil2root-ai:latest
             imagePullPolicy: Always
             args: ["train-and-analyze"]
             env:
@@ -120,6 +175,14 @@ spec:
               value: "redis"
             - name: TF_FORCE_GPU_ALLOW_GROWTH
               value: "true"
+            - name: TZ
+              value: "UTC"
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+              readOnlyRootFilesystem: true
             resources:
               requests:
                 memory: "4Gi"
@@ -134,6 +197,9 @@ spec:
               mountPath: /app/logs
             - name: saved-models
               mountPath: /app/saved_models
+            - name: tmp-volume
+              mountPath: /tmp
+              readOnly: false
           volumes:
           - name: app-data
             persistentVolumeClaim:
@@ -144,4 +210,14 @@ spec:
           - name: saved-models
             persistentVolumeClaim:
               claimName: saved-models
-          restartPolicy: Never 
+          - name: tmp-volume
+            emptyDir: {}
+          restartPolicy: Never
+          affinity:
+            nodeAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                preference:
+                  matchExpressions:
+                  - key: node-role.kubernetes.io/worker
+                    operator: Exists 

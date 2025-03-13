@@ -1,166 +1,141 @@
-# Déploiement EVIL2ROOT Trading Bot sur Kubernetes
+# Configuration Kubernetes pour EVIL2ROOT Trading Bot
 
-Ce répertoire contient tous les fichiers nécessaires pour déployer le Trading Bot sur un cluster Kubernetes.
+Ce répertoire contient l'ensemble des fichiers de configuration Kubernetes pour déployer le Trading Bot EVIL2ROOT sur un cluster Kubernetes.
 
-## Prérequis
+## Améliorations récentes apportées
 
-- Un cluster Kubernetes fonctionnel (version 1.19+)
-- `kubectl` installé et configuré pour accéder à votre cluster
-- `kustomize` installé (facultatif, mais recommandé)
-- Un contrôleur Ingress (comme NGINX Ingress Controller) installé sur le cluster
-- cert-manager (optionnel, pour les certificats SSL automatiques)
-- Accès au registre Docker contenant l'image evil2root/trading-bot:latest
+La configuration Kubernetes a été mise à jour avec les améliorations suivantes:
 
-### Support GPU (optionnel)
+1. **Sécurité renforcée**:
+   - Contextes de sécurité pour tous les conteneurs (`securityContext`)
+   - Configuration `runAsNonRoot` et `readOnlyRootFilesystem`
+   - Suppression des capacités superflues
+   - Prévention de l'escalade de privilèges
+   - En-têtes de sécurité HTTP améliorés pour les Ingress
+   - Isolation réseau via les NetworkPolicies
 
-Pour utiliser les fonctionnalités d'entraînement accéléré par GPU, vous devez:
-- Avoir des nœuds avec GPU dans votre cluster
-- Installer l'opérateur NVIDIA sur votre cluster:
-  ```bash
-  kubectl create -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/master/nvidia-device-plugin.yml
-  ```
+2. **Haute disponibilité**:
+   - PodDisruptionBudgets configurés pour tous les services critiques
+   - Stratégies de déploiement RollingUpdate avec zero downtime
+   - Affinités de nœuds et topologie pour une meilleure répartition
+   - Sondes de healthcheck (liveness, readiness, startup) améliorées
+
+3. **Autoscaling intelligent**:
+   - Métriques personnalisées pour le scaling basé sur les charges réelles
+   - Comportements de scaling améliorés avec périodes de stabilisation
+   - Politiques de montée et descente en charge plus précises
+
+4. **Optimisation de ressources**:
+   - Limites et requêtes ajustées pour optimiser les performances
+   - Volume temporaire pour les écritures en lecture seule
+   - Répartition sur les nœuds worker via nodeAffinity
+
+5. **Déploiement amélioré**:
+   - Script de déploiement progressif et sécurisé
+   - Génération de checksums pour la détection des changements de configuration
+   - Prise en compte des timestamps pour forcer les redéploiements si nécessaire
 
 ## Structure des fichiers
 
-- `namespace.yaml` - Définit le namespace du projet
-- `configmap.yaml` - Contient les configurations partagées
-- `secrets.yaml` - Définit les secrets (à personnaliser avant déploiement)
-- `storage.yaml` - Crée les PersistentVolumeClaims pour le stockage persistant
-- `db-deployment.yaml` - Déploie PostgreSQL
-- `redis-deployment.yaml` - Déploie Redis
-- `web-deployment.yaml` - Déploie l'interface web principale
-- `analysis-bot-deployment.yaml` - Déploie le bot d'analyse
-- `market-scheduler-deployment.yaml` - Déploie le planificateur du marché
-- `train-analyze-job.yaml` - Déploie le job d'entraînement et d'analyse
-- `monitoring-deployment.yaml` - Déploie Prometheus et Grafana
-- `adminer-deployment.yaml` - Déploie Adminer pour la gestion de la base de données
-- `kustomization.yaml` - Configuration Kustomize pour un déploiement simple
-- `deploy.sh` - Script de déploiement automatisé
+- `namespace.yaml` - Définition du namespace dédié
+- `configmap.yaml` - Configuration partagée
+- `secrets.yaml` - Informations sensibles (encodées en base64)
+- `storage.yaml` - Volumes persistants
+- `db-deployment.yaml` - Déploiement PostgreSQL
+- `redis-deployment.yaml` - Déploiement Redis
+- `web-deployment.yaml` - Interface web du trading bot
+- `analysis-bot-deployment.yaml` - Service d'analyse en continu
+- `market-scheduler-deployment.yaml` - Planificateur d'ordres de marché
+- `train-analyze-job.yaml` - Jobs d'entraînement et d'analyse
+- `monitoring-deployment.yaml` - Prometheus et Grafana
+- `hpa.yaml` - Configuration d'autoscaling
+- `network-policies.yaml` - Sécurité réseau
+- `pod-disruption-budgets.yaml` - Garanties de disponibilité
+- `database-backup.yaml` - Sauvegarde automatique de la base de données
+- `kustomization.yaml` - Configuration Kustomize
+- `deploy.sh` - Script de déploiement amélioré
 
-## Procédure de déploiement rapide
+## Prérequis
 
-1. Personnalisez `secrets.yaml` avec vos propres mots de passe (ne laissez pas les valeurs par défaut en production!)
-2. Modifiez les noms d'hôtes dans les fichiers d'Ingress pour qu'ils correspondent à votre domaine
-3. Exécutez le script de déploiement:
-   ```bash
-   ./deploy.sh
-   ```
+- Kubernetes 1.20+
+- kubectl 1.20+
+- Un cluster avec les ressources suivantes:
+  - Au moins 3 nœuds worker
+  - Au moins 16GB de RAM disponible
+  - Au moins 8 vCPUs disponibles
+  - Au moins 100GB de stockage persistant
+  - (Optionnel) Support GPU pour les tâches d'entraînement
 
-## Déploiement manuel
+## Déploiement
 
-Si vous préférez déployer manuellement, suivez ces étapes:
-
-1. Créez le namespace:
-   ```bash
-   kubectl apply -f namespace.yaml
-   ```
-
-2. Créez les secrets et configmaps:
-   ```bash
-   kubectl apply -f configmap.yaml -f secrets.yaml
-   ```
-
-3. Créez les volumes persistants:
-   ```bash
-   kubectl apply -f storage.yaml
-   ```
-
-4. Déployez la base de données et Redis:
-   ```bash
-   kubectl apply -f db-deployment.yaml -f redis-deployment.yaml
-   ```
-   
-5. Attendez que la base de données et Redis soient prêts:
-   ```bash
-   kubectl -n evil2root-trading wait --for=condition=available --timeout=300s deployment/postgres deployment/redis
-   ```
-
-6. Déployez les autres composants:
-   ```bash
-   kubectl apply -f web-deployment.yaml -f analysis-bot-deployment.yaml -f market-scheduler-deployment.yaml -f monitoring-deployment.yaml -f adminer-deployment.yaml
-   ```
-
-7. Créez le job d'entraînement (uniquement si nécessaire):
-   ```bash
-   kubectl apply -f train-analyze-job.yaml
-   ```
-
-## Vérification du déploiement
-
-Pour vérifier que tout fonctionne correctement:
+Pour déployer l'application, exécutez le script de déploiement amélioré:
 
 ```bash
-kubectl -n evil2root-trading get pods
-kubectl -n evil2root-trading get svc
-kubectl -n evil2root-trading get ingress
+cd kubernetes
+chmod +x deploy.sh
+./deploy.sh
 ```
 
-## Accès aux services
+Le script vérifiera les prérequis, préparera les fichiers, appliquera les ressources dans le bon ordre et attendra que tous les services soient disponibles.
 
-Une fois déployé, accédez aux services via les URLs suivants:
+## Personnalisation
 
-- Interface Web: https://trading.example.com (à remplacer par votre domaine)
-- Grafana: https://grafana.trading.example.com
-- Adminer: https://adminer.trading.example.com
+Vous pouvez personnaliser le déploiement en modifiant les fichiers de configuration YAML avant d'exécuter le script de déploiement.
 
-## Personnalisation avancée
+### Pour modifier les ressources (CPU/mémoire)
 
-### Ajustement des ressources
+Modifiez les sections `resources` dans les fichiers de déploiement:
 
-Les ressources (CPU/mémoire) sont configurées avec des valeurs par défaut dans chaque fichier de déploiement. Vous pouvez les ajuster en fonction de votre environnement.
+```yaml
+resources:
+  requests:
+    memory: "1Gi"
+    cpu: "500m"
+  limits:
+    memory: "4Gi"
+    cpu: "1000m"
+```
 
-### Mise à l'échelle
+### Pour modifier le nombre de réplicas
 
-Pour augmenter le nombre de replicas de l'interface web:
+Modifiez la propriété `replicas` dans les fichiers de déploiement, ou utilisez:
 
 ```bash
 kubectl -n evil2root-trading scale deployment/trading-bot-web --replicas=3
 ```
 
-### Stockage
+### Pour les environnements sans GPU
 
-Le déploiement utilise par défaut des PersistentVolumeClaims avec la classe de stockage "standard". Modifiez `storage.yaml` pour utiliser une autre classe de stockage disponible dans votre cluster.
+Dans `train-analyze-job.yaml`, supprimez ou commentez les sections relatives aux GPU.
+
+## Surveillance
+
+Une fois déployé, vous pouvez accéder à Grafana pour surveiller les performances du système:
+
+- URL: https://grafana.trading.example.com
+- Identifiant par défaut: admin
+- Mot de passe: voir les secrets ou récupérer avec la commande:
+  ```bash
+  kubectl -n evil2root-trading get secret trading-bot-secrets -o jsonpath='{.data.GRAFANA_ADMIN_PASSWORD}' | base64 --decode
+  ```
 
 ## Dépannage
 
-### Vérification des journaux
+Si vous rencontrez des problèmes lors du déploiement:
 
-```bash
-kubectl -n evil2root-trading logs deployment/trading-bot-web
-kubectl -n evil2root-trading logs deployment/analysis-bot
-kubectl -n evil2root-trading logs deployment/market-scheduler
-```
+1. Vérifiez les logs des pods:
+   ```bash
+   kubectl -n evil2root-trading logs -f deployment/trading-bot-web
+   ```
 
-### Redémarrage d'un pod
+2. Vérifiez le statut des pods:
+   ```bash
+   kubectl -n evil2root-trading get pods
+   ```
 
-```bash
-kubectl -n evil2root-trading delete pod <nom-du-pod>
-```
+3. Détails sur un pod spécifique:
+   ```bash
+   kubectl -n evil2root-trading describe pod pod-name
+   ```
 
-### Problèmes de persistance
-
-Si vous rencontrez des problèmes de persistance, vérifiez l'état des PVCs:
-
-```bash
-kubectl -n evil2root-trading get pvc
-```
-
-## Mises à jour et maintenance
-
-### Mise à jour de l'image
-
-Pour mettre à jour l'image du trading bot:
-
-```bash
-kubectl -n evil2root-trading set image deployment/trading-bot-web web=evil2root/trading-bot:nouvelle-version
-kubectl -n evil2root-trading set image deployment/analysis-bot analysis-bot=evil2root/trading-bot:nouvelle-version
-kubectl -n evil2root-trading set image deployment/market-scheduler market-scheduler=evil2root/trading-bot:nouvelle-version
-```
-
-### Sauvegarde de la base de données
-
-Pour sauvegarder la base de données:
-
-```bash
-kubectl -n evil2root-trading exec -it deployment/postgres -- pg_dump -U postgres tradingbot > backup.sql
-```
+Pour des informations plus détaillées, consultez le fichier KUBERNETES.md à la racine du projet.
