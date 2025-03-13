@@ -40,7 +40,7 @@ transformers==4.29.2
 xgboost==1.7.5
 lightgbm==3.3.5
 catboost==1.2.3
-openai==0.27.8
+# openai==0.27.8  # Installé par fix-causalml-install.sh avec version compatible
 anthropic==0.3.11
 pydantic==1.10.8
 dill==0.3.6
@@ -88,7 +88,7 @@ sentence-transformers==2.2.2
 hnswlib==0.7.0
 optimum==1.9.1
 langchain==0.0.283
-langchain-openai==0.0.2
+# langchain-openai==0.0.2  # Installé par fix-causalml-install.sh avec version compatible d'openai
 
 # Nouvelles dépendances pour amélioration de précision
 optuna==3.3.0

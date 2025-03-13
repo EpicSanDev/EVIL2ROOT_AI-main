@@ -1,4 +1,4 @@
-FROM python:3.10-slim AS builder
+FROM python:3.9-slim AS builder
 
 LABEL maintainer="EVIL2ROOT Team <contact@evil2root.ai>"
 LABEL description="EVIL2ROOT Trading Bot - Système de trading automatisé avec validation IA"
@@ -30,20 +30,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Définir le répertoire de travail
 WORKDIR /app
 
-# Copier et installer les dépendances - séparées pour un meilleur caching
+# Copier et installer les dépendances de base d'abord
 COPY requirements-essential.txt .
 RUN pip install --no-cache-dir --upgrade pip wheel setuptools && \
     pip install --no-cache-dir -r requirements-essential.txt
 
+# Copier le script de correction et l'exécuter avant d'installer le reste des packages
+COPY docker/fix-causalml-install.sh /tmp/fix-causalml-install.sh
+RUN chmod +x /tmp/fix-causalml-install.sh && /tmp/fix-causalml-install.sh
+
+# Installer maintenant le reste des dépendances
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt 
 
 # Copier setup.py pour l'installation en mode développement
 COPY setup.py .
 RUN pip install -e .
 
 # Phase de runtime avec une image plus légère
-FROM python:3.10-slim AS runtime
+FROM python:3.9-slim AS runtime
 
 # Métadonnées
 LABEL maintainer="EVIL2ROOT Team <contact@evil2root.ai>"
