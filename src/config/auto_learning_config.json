@@ -1,0 +1,56 @@
+{
+    "learning_frequency_days": 7,
+    "analysis_window_days": 30,
+    "error_analysis_window_days": 90,
+    "min_trades_for_analysis": 10,
+    "auto_adjust_enabled": true,
+    "visualization_enabled": true,
+    "backup_models_before_adjustment": true,
+    "max_adjustment_per_cycle": 3,
+    "adjustment_sensitivity": {
+        "rl_models": 0.7,
+        "ensemble_models": 0.5,
+        "price_models": 0.8,
+        "sentiment_models": 0.6
+    },
+    "error_thresholds": {
+        "timing_error": 0.15,
+        "size_error": 0.12,
+        "trend_misread": 0.20,
+        "signal_conflict": 0.10,
+        "overtrading": 0.08,
+        "premature_exit": 0.15,
+        "delayed_exit": 0.15,
+        "ignored_stop": 0.25,
+        "market_condition": 0.18,
+        "high_volatility": 0.20
+    },
+    "email_reports": {
+        "enabled": false,
+        "frequency_days": 7,
+        "recipients": [],
+        "include_visualizations": true,
+        "include_performance_table": true,
+        "include_error_analysis": true,
+        "include_adjustment_summary": true
+    },
+    "logging": {
+        "file_enabled": true,
+        "console_enabled": true,
+        "level": "INFO",
+        "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        "log_dir": "logs"
+    },
+    "model_data": {
+        "save_format": "pickle",
+        "version_control": true,
+        "keep_previous_versions": 3,
+        "backup_dir": "models/backups"
+    },
+    "database": {
+        "connection_timeout": 30,
+        "query_timeout": 60,
+        "auto_vacuum": true,
+        "optimization_frequency_days": 30
+    }
+} 
