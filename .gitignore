@@ -74,4 +74,6 @@ jspm_packages/
 *.swo
 *~
 .DS_Store
-Thumbs.db 
+Thumbs.db
+
+secrets/
