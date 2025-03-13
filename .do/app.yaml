@@ -1,0 +1,149 @@
+name: evil2root-ai-trading
+region: fra
+services:
+  - name: web
+    dockerfile_path: Dockerfile
+    github:
+      branch: main
+      deploy_on_push: true
+      repo: votre-compte/Evil2Root_TRADING
+    build_command: chmod +x docker/fix-causalml-install.sh docker/fix-finbert-install.sh
+    run_command: /app/digitalocean-entrypoint.sh gunicorn
+    http_port: 8080
+    instance_count: 1
+    instance_size_slug: professional-1x
+    build_config:
+      memory: 8Gi
+    healthcheck:
+      http_path: /health
+      initial_delay_seconds: 60
+    routes:
+      - path: /
+    envs:
+      - key: FLASK_ENV
+        value: production
+      - key: PORT
+        value: "8080"
+      - key: TZ
+        value: UTC
+      - key: REDIS_URL
+        scope: RUN_TIME
+        value: ${redis.DATABASE_URL}
+      - key: DB_HOST
+        scope: RUN_TIME
+        value: ${db.HOSTNAME}
+      - key: DB_PORT
+        scope: RUN_TIME
+        value: ${db.PORT}
+      - key: DB_NAME
+        scope: RUN_TIME
+        value: ${db.DATABASE}
+      - key: DB_USER
+        scope: RUN_TIME
+        value: ${db.USERNAME}
+      - key: DB_PASSWORD
+        scope: RUN_TIME
+        value: ${db.PASSWORD}
+      # Ajoutez ici vos autres variables d'environnement secrètes
+      # - key: SECRET_KEY
+      #   type: SECRET
+      # - key: TELEGRAM_TOKEN
+      #   type: SECRET
+
+databases:
+  - name: db
+    engine: PG
+    version: "14"
+    production: true
+    db_name: trading_db
+    db_user: trading_user
+
+workers:
+  - name: market-scheduler
+    dockerfile_path: Dockerfile
+    github:
+      branch: main
+      repo: votre-compte/Evil2Root_TRADING
+    build_command: chmod +x docker/fix-causalml-install.sh docker/fix-finbert-install.sh
+    run_command: /app/digitalocean-entrypoint.sh scheduler
+    instance_count: 1
+    instance_size_slug: basic-xs
+    build_config:
+      memory: 8Gi
+    envs:
+      - key: FLASK_ENV
+        value: production
+      - key: TZ
+        value: UTC
+      - key: REDIS_URL
+        scope: RUN_TIME
+        value: ${redis.DATABASE_URL}
+      - key: DB_HOST
+        scope: RUN_TIME
+        value: ${db.HOSTNAME}
+      - key: DB_PORT
+        scope: RUN_TIME
+        value: ${db.PORT}
+      - key: DB_NAME
+        scope: RUN_TIME
+        value: ${db.DATABASE}
+      - key: DB_USER
+        scope: RUN_TIME
+        value: ${db.USERNAME}
+      - key: DB_PASSWORD
+        scope: RUN_TIME
+        value: ${db.PASSWORD}
+      # Copiez les mêmes variables secrètes que pour le service web
+
+jobs:
+  - name: daily-analysis
+    dockerfile_path: Dockerfile
+    github:
+      branch: main
+      repo: votre-compte/Evil2Root_TRADING
+    build_command: chmod +x docker/fix-causalml-install.sh docker/fix-finbert-install.sh
+    run_command: /app/digitalocean-entrypoint.sh analysis-bot
+    kind: CRON
+    schedule: "0 0 * * *"  # Exécuter tous les jours à minuit
+    instance_size_slug: basic-xs
+    build_config:
+      memory: 8Gi
+    envs:
+      - key: FLASK_ENV
+        value: production
+      - key: TZ
+        value: UTC
+      - key: REDIS_URL
+        scope: RUN_TIME
+        value: ${redis.DATABASE_URL}
+      - key: DB_HOST
+        scope: RUN_TIME
+        value: ${db.HOSTNAME}
+      - key: DB_PORT
+        scope: RUN_TIME
+        value: ${db.PORT}
+      - key: DB_NAME
+        scope: RUN_TIME
+        value: ${db.DATABASE}
+      - key: DB_USER
+        scope: RUN_TIME
+        value: ${db.USERNAME}
+      - key: DB_PASSWORD
+        scope: RUN_TIME
+        value: ${db.PASSWORD}
+      # Copiez les mêmes variables secrètes que pour le service web
+
+static_sites:
+  - name: documentation
+    github:
+      branch: main
+      repo: votre-compte/Evil2Root_TRADING
+    source_dir: docs
+    output_dir: _build
+    build_command: pip install -r docs/requirements.txt && cd docs && make html
+    routes:
+      - path: /docs
+
+redis:
+  - name: redis
+    ipv4_address: true 

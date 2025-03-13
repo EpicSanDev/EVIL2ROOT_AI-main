@@ -8,6 +8,7 @@ mkdir -p data logs saved_models
 echo "=== Evil2Root Trading Bot - Démarrage Docker ==="
 echo "Date de démarrage: $(date)"
 echo "Environnement: $FLASK_ENV"
+echo "Port utilisé: ${PORT:-5000}"
 
 # Fonction pour charger les secrets depuis les fichiers Docker Secrets
 load_secrets() {
@@ -63,8 +64,8 @@ elif [ "$1" = "web-with-scheduler" ]; then
     echo "Mode web avec scheduler activé"
     # Démarrage du scheduler en arrière-plan
     start_market_scheduler
-    # Démarrage de l'application web
-    exec gunicorn run:app --bind=0.0.0.0:5000
+    # Démarrage de l'application web avec PORT
+    exec gunicorn run:app --bind=0.0.0.0:${PORT:-5000}
 elif [ "$1" = "analysis-bot" ]; then
     echo "Mode analysis-bot activé"
     exec python start_daily_analysis.py
@@ -77,8 +78,39 @@ elif [ "$1" = "scheduler-force-train" ]; then
     # Définir la variable d'environnement pour forcer l'entraînement
     export FORCE_MODEL_TRAINING=true
     exec python -c "from app.market_analysis_scheduler import run_market_analysis_scheduler; run_market_analysis_scheduler()"
+elif [ "$1" = "gunicorn" ]; then
+    # Mode spécifique pour DigitalOcean - exécuter gunicorn avec PORT
+    echo "Mode gunicorn activé pour DigitalOcean"
+    shift
+    exec gunicorn run:app --bind=0.0.0.0:${PORT:-5000} "$@"
 else
-    # Mode par défaut: application web uniquement
-    echo "Mode par défaut (web) activé"
-    exec "$@"
+    # Si la commande est gunicorn avec des arguments, utiliser PORT
+    if [[ "$1" == "gunicorn" ]]; then
+        echo "Ajustement du port pour gunicorn: ${PORT:-5000}"
+        # Remplacer le paramètre --bind s'il existe
+        ARGS=()
+        BIND_SET=false
+        while [[ $# -gt 0 ]]; do
+            if [[ "$1" == "--bind" ]]; then
+                ARGS+=("$1")
+                shift
+                ARGS+=("0.0.0.0:${PORT:-5000}")
+                BIND_SET=true
+            else
+                ARGS+=("$1")
+            fi
+            shift
+        done
+        
+        # Si --bind n'était pas dans les arguments, l'ajouter
+        if [[ "$BIND_SET" == "false" ]]; then
+            exec gunicorn run:app --bind=0.0.0.0:${PORT:-5000}
+        else
+            exec gunicorn "${ARGS[@]}"
+        fi
+    else
+        # Mode par défaut: application web uniquement
+        echo "Mode par défaut (web) activé"
+        exec "$@"
+    fi
 fi 

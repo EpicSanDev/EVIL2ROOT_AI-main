@@ -43,17 +43,48 @@ RUN grep -v "plotly\|dash" requirements.txt > requirements-filtered.txt \
     && cat requirements-filtered.txt | grep -v "^#" | grep "^requests\|^psycopg2\|^redis\|^psutil\|^flask\|^python-dotenv\|^gunicorn" > web-deps.txt \
     && pip install --no-cache-dir -r web-deps.txt
 
-# Installation des dépendances ML en deux passes pour éviter les conflits
+# Installation des dépendances ML en étapes séparées pour économiser la mémoire
 RUN cat requirements-filtered.txt | grep -v "^#" | grep "^torch" > torch-deps.txt \
     && pip install --no-cache-dir -r torch-deps.txt --no-deps \
-    && cat requirements-filtered.txt | grep -v "^#" | grep "^transformers\|^xgboost\|^lightgbm\|^catboost" > ml-core-deps.txt \
-    && pip install --no-cache-dir -r ml-core-deps.txt \
-    && cat requirements-filtered.txt | grep -v "^#" | grep "^tensorflow\|^keras" > tf-deps.txt \
-    && pip install --no-cache-dir -r tf-deps.txt \
-    && cat requirements-filtered.txt | grep -v "^#" | grep "^torchvision\|^pytorch-lightning\|^stable-baselines3\|^fastai\|^optimum" > torch-related-deps.txt \
-    && pip install --no-cache-dir -r torch-related-deps.txt --use-pep517
+    && rm -rf /root/.cache/pip \
+    && echo "Torch installé, nettoyage des caches pour libérer de la mémoire"
 
-# Installation des autres dépendances
+RUN cat requirements-filtered.txt | grep -v "^#" | grep "^transformers\|^xgboost\|^lightgbm" > ml-libs.txt \
+    && pip install --no-cache-dir -r ml-libs.txt \
+    && rm -rf /root/.cache/pip \
+    && echo "Transformers, XGBoost et LightGBM installés"
+
+RUN cat requirements-filtered.txt | grep -v "^#" | grep "^catboost" > catboost.txt \
+    && pip install --no-cache-dir -r catboost.txt \
+    && rm -rf /root/.cache/pip \
+    && echo "CatBoost installé"
+
+RUN cat requirements-filtered.txt | grep -v "^#" | grep "^tensorflow" > tf-core.txt \
+    && pip install --no-cache-dir -r tf-core.txt \
+    && rm -rf /root/.cache/pip \
+    && echo "TensorFlow installé"
+
+RUN cat requirements-filtered.txt | grep -v "^#" | grep "^keras" > keras.txt \
+    && pip install --no-cache-dir -r keras.txt \
+    && rm -rf /root/.cache/pip \
+    && echo "Keras installé"
+
+RUN cat requirements-filtered.txt | grep -v "^#" | grep "^torchvision" > torch-vision.txt \
+    && pip install --no-cache-dir -r torch-vision.txt --no-deps \
+    && rm -rf /root/.cache/pip \
+    && echo "TorchVision installé"
+
+RUN cat requirements-filtered.txt | grep -v "^#" | grep "^pytorch-lightning" > pytorch-lightning.txt \
+    && pip install --no-cache-dir -r pytorch-lightning.txt \
+    && rm -rf /root/.cache/pip \
+    && echo "PyTorch Lightning installé"
+
+RUN cat requirements-filtered.txt | grep -v "^#" | grep "^stable-baselines3\|^fastai\|^optimum" > other-torch.txt \
+    && pip install --no-cache-dir -r other-torch.txt --use-pep517 \
+    && rm -rf /root/.cache/pip \
+    && echo "Autres dépendances PyTorch installées"
+
+# Installation des autres dépendances (non ML) en une seule étape pour optimiser le build
 RUN cat requirements-filtered.txt | grep -v "^#" | grep -v "^numpy\|^pandas\|^scipy\|^scikit-learn\|^joblib\|^matplotlib\|^seaborn\|^requests\|^psycopg2\|^redis\|^psutil\|^flask\|^python-dotenv\|^gunicorn\|^tensorflow\|^keras\|^torch\|^transformers\|^xgboost\|^lightgbm\|^catboost\|^causalml\|^econml\|^torchvision\|^pytorch-lightning\|^stable-baselines3\|^fastai\|^optimum" > other-deps.txt \
     && pip install --no-cache-dir -r other-deps.txt
 
@@ -82,11 +113,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     TZ=UTC \
     FLASK_APP=run.py \
     FLASK_ENV=production \
-    PATH="/opt/venv/bin:$PATH"
+    PATH="/opt/venv/bin:$PATH" \
+    # Configuration spécifique pour DigitalOcean App Platform
+    PORT=8080 \
+    # Plus de journalisation pour faciliter le débogage
+    GUNICORN_CMD_ARGS="--access-logfile=- --error-logfile=- --log-level=info"
 
 # Install only runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Create working directory
@@ -100,24 +136,36 @@ COPY . .
 
 # Create necessary directories with proper permissions
 RUN mkdir -p data logs saved_models && \
-    chown -R nobody:nogroup data logs saved_models
+    chmod -R 777 data logs saved_models
 
 # Make scripts executable and prepare environment
 RUN chmod +x docker/prepare-scripts.sh && \
-    ./docker/prepare-scripts.sh
+    ./docker/prepare-scripts.sh && \
+    chmod +x docker-entrypoint.sh
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD curl -f http://localhost:5000/health || exit 1
+# Health check adapté pour DigitalOcean (utilisera la variable PORT)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:${PORT}/health || exit 1
 
-# Expose port
-EXPOSE 5000
+# Expose port pour DigitalOcean - utilisera la variable PORT injectée
+EXPOSE ${PORT}
 
-# Use non-root user for security
-USER nobody:nogroup
+# Script de démarrage modifié pour DigitalOcean
+RUN echo '#!/bin/sh\n\
+# Adapter les chemins et permissions pour DigitalOcean\n\
+mkdir -p /app/data /app/logs /app/saved_models\n\
+chmod -R 777 /app/data /app/logs /app/saved_models\n\
+\n\
+# Exécuter le script d'\''entrée original\n\
+exec /app/docker-entrypoint.sh "$@"\n\
+' > /app/digitalocean-entrypoint.sh && \
+    chmod +x /app/digitalocean-entrypoint.sh
 
-# Set entrypoint
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
+# DigitalOcean App Platform préfère exécuter en tant que root
+# USER nobody:nogroup
 
-# Default command
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "run:app"]
+# Set entrypoint for DigitalOcean
+ENTRYPOINT ["/app/digitalocean-entrypoint.sh"]
+
+# Default command - utilisera la variable PORT injectée par DigitalOcean
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT} run:app"]
