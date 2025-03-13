@@ -105,11 +105,51 @@ configure_digitalocean() {
 create_do_cluster() {
   log "digitalocean" "Création d'un nouveau cluster Kubernetes sur DigitalOcean..."
   
-  # Demander les informations du cluster
-  read -p "Nom du cluster (ex: trading-cluster): " CLUSTER_NAME
-  read -p "Région (ex: fra1, nyc1, sfo2): " REGION
-  read -p "Taille des nœuds (ex: s-2vcpu-4gb): " NODE_SIZE
-  read -p "Nombre de nœuds: " NODE_COUNT
+  # Paramètres par défaut optimisés pour Evil2Root Trading
+  DEFAULT_CLUSTER_NAME="evil2root-trading"
+  DEFAULT_REGION="fra1"  # Frankfurt (Europe)
+  DEFAULT_NODE_SIZE="s-4vcpu-8gb"  # 4 vCPUs, 8GB RAM (optimal pour le trading)
+  DEFAULT_NODE_COUNT=3  # 3 nœuds pour la haute disponibilité
+  
+  # Demander confirmation ou modification des valeurs par défaut
+  read -p "Nom du cluster [$DEFAULT_CLUSTER_NAME]: " CLUSTER_NAME
+  CLUSTER_NAME=${CLUSTER_NAME:-$DEFAULT_CLUSTER_NAME}
+  
+  read -p "Région [$DEFAULT_REGION]: " REGION
+  REGION=${REGION:-$DEFAULT_REGION}
+  
+  # Afficher les tailles de droplet disponibles
+  log "digitalocean" "Récupération des tailles de droplet disponibles..."
+  echo "Tailles disponibles:"
+  doctl compute size list --format Slug,Memory,VCPUs,Disk,PriceMonthly | head -20
+  
+  log "digitalocean" "Taille recommandée pour Evil2Root Trading: $DEFAULT_NODE_SIZE (4 vCPUs, 8GB RAM)"
+  read -p "Taille des nœuds [$DEFAULT_NODE_SIZE]: " NODE_SIZE
+  NODE_SIZE=${NODE_SIZE:-$DEFAULT_NODE_SIZE}
+  
+  log "digitalocean" "Nombre de nœuds recommandé: $DEFAULT_NODE_COUNT (pour la haute disponibilité)"
+  log "digitalocean" "Utilisation automatique de $DEFAULT_NODE_COUNT nœuds pour assurer la haute disponibilité de l'application de trading"
+  NODE_COUNT=$DEFAULT_NODE_COUNT
+  
+  # Vérifier si la taille est valide
+  if ! doctl compute size list --format Slug --no-header | grep -q "^${NODE_SIZE}$"; then
+    log "error" "Taille de droplet invalide: ${NODE_SIZE}"
+    log "digitalocean" "Veuillez choisir une taille valide parmi la liste ci-dessus."
+    return 1
+  fi
+  
+  # Confirmation finale
+  log "digitalocean" "Récapitulatif de la configuration du cluster:"
+  log "digitalocean" "- Nom: $CLUSTER_NAME"
+  log "digitalocean" "- Région: $REGION"
+  log "digitalocean" "- Taille des nœuds: $NODE_SIZE"
+  log "digitalocean" "- Nombre de nœuds: $NODE_COUNT"
+  
+  read -p "Confirmer la création du cluster avec ces paramètres? (o/n): " CONFIRM
+  if [[ "$CONFIRM" != "o" ]]; then
+    log "digitalocean" "Création du cluster annulée."
+    return 1
+  fi
   
   # Créer le cluster
   log "digitalocean" "Création du cluster $CLUSTER_NAME dans la région $REGION..."
@@ -131,6 +171,9 @@ create_do_cluster() {
   doctl kubernetes cluster kubeconfig save "$CLUSTER_NAME"
   
   log "digitalocean" "Cluster Kubernetes créé avec succès. Attendez quelques minutes que tous les nœuds soient prêts."
+  
+  # Configuration automatique des resources limits pour le projet
+  log "digitalocean" "Configuration automatique des limites de ressources pour Evil2Root Trading..."
   
   # Vérifier l'état des nœuds
   kubectl get nodes
@@ -353,12 +396,12 @@ update_image() {
     exit 1
   fi
   
-  log "info" "Mise à jour de l'image vers evil2root/trading-bot:$VERSION..."
+  log "info" "Mise à jour de l'image vers registry.digitalocean.com/epicsandev:$VERSION..."
   
   # Mise à jour de l'image pour les déploiements
-  kubectl set image deployment/trading-bot-web web=evil2root/trading-bot:$VERSION -n evil2root-trading
-  kubectl set image deployment/analysis-bot analysis-bot=evil2root/trading-bot:$VERSION -n evil2root-trading
-  kubectl set image deployment/market-scheduler market-scheduler=evil2root/trading-bot:$VERSION -n evil2root-trading
+  kubectl set image deployment/trading-bot-web web=registry.digitalocean.com/epicsandev:$VERSION -n evil2root-trading
+  kubectl set image deployment/analysis-bot analysis-bot=registry.digitalocean.com/epicsandev:$VERSION -n evil2root-trading
+  kubectl set image deployment/market-scheduler market-scheduler=registry.digitalocean.com/epicsandev:$VERSION -n evil2root-trading
   
   log "info" "Mise à jour des images terminée. Surveillance du rollout..."
   

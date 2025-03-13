@@ -174,10 +174,10 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "120"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      more_set_headers "X-Frame-Options: SAMEORIGIN";
-      more_set_headers "X-Content-Type-Options: nosniff";
-      more_set_headers "X-XSS-Protection: 1; mode=block";
+    nginx.ingress.kubernetes.io/x-frame-options: "SAMEORIGIN"
+    nginx.ingress.kubernetes.io/enable-xss-protection: "true"
+    nginx.ingress.kubernetes.io/xss-protection-mode: "block"
+    nginx.ingress.kubernetes.io/x-content-type-options: "nosniff"
 spec:
   tls:
   - hosts:
