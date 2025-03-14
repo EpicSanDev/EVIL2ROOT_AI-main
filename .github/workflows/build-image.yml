@@ -30,6 +30,11 @@ jobs:
         run: |
           rsync -avz --exclude='.git' ./ root@${{ secrets.BUILDER_IP }}:/opt/builder/
 
+      - name: Configure Docker authentication on builder droplet
+        run: |
+          ssh root@${{ secrets.BUILDER_IP }} 'doctl auth init -t ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}'
+          ssh root@${{ secrets.BUILDER_IP }} 'doctl registry login'
+
       - name: Build Docker image on builder droplet
         run: |
           ssh root@${{ secrets.BUILDER_IP }} 'cd /opt/builder && docker build -t registry.digitalocean.com/evil2root-registry/evil2root-ai:latest .'
