@@ -1,0 +1,151 @@
+name: Build and Deploy to Kubernetes
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to Docker Registry
+        uses: docker/login-action@v2
+        with:
+          registry: registry.digitalocean.com
+          username: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          password: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: registry.digitalocean.com/evil2root-registry/evil2root-ai:latest
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Create Kubernetes cluster if it doesn't exist
+        run: |
+          # Vérifier si le cluster existe déjà
+          if ! doctl kubernetes cluster get evil2root-trading &>/dev/null; then
+            echo "Le cluster n'existe pas. Création du cluster Kubernetes..."
+            
+            # Créer un nouveau cluster Kubernetes
+            doctl kubernetes cluster create evil2root-trading \
+              --region fra1 \
+              --size s-2vcpu-4gb \
+              --count 2 \
+              --auto-upgrade=true \
+              --ha=false
+            
+            echo "Cluster Kubernetes créé avec succès."
+          else
+            echo "Le cluster Kubernetes existe déjà."
+          fi
+          
+          # Enregistrer le fichier kubeconfig
+          doctl kubernetes cluster kubeconfig save evil2root-trading
+
+      - name: Deploy to Kubernetes
+        run: |
+          # Créer le namespace s'il n'existe pas
+          kubectl apply -f kubernetes/namespace.yaml
+          
+          # Appliquer les configurations et secrets
+          kubectl apply -f kubernetes/configmap.yaml
+          kubectl apply -f kubernetes/secrets.yaml
+          
+          # Déployer l'infrastructure (stockage, réseau, etc.)
+          kubectl apply -f kubernetes/storage.yaml
+          kubectl apply -f kubernetes/network-policies.yaml
+          
+          # Déployer les services de base (Redis, DB)
+          kubectl apply -f kubernetes/redis-deployment.yaml
+          kubectl apply -f kubernetes/db-deployment.yaml
+          
+          # Déployer l'application principale
+          kubectl apply -f kubernetes/web-deployment.yaml
+          kubectl apply -f kubernetes/market-scheduler-deployment.yaml
+          kubectl apply -f kubernetes/analysis-bot-deployment.yaml
+          
+          # Déployer le service externe avec LoadBalancer
+          kubectl apply -f kubernetes/web-service-external.yaml
+          
+          # Appliquer les politiques de scaling
+          kubectl apply -f kubernetes/hpa.yaml
+          kubectl apply -f kubernetes/pod-disruption-budgets.yaml
+          
+          # Récupérer et afficher l'IP externe du service
+          echo "Attente de l'attribution d'une IP externe..."
+          
+          # Boucle pour attendre que le service obtienne une IP externe
+          MAX_RETRIES=20
+          RETRY_COUNT=0
+          
+          until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
+            EXTERNAL_IP=$(kubectl get svc -n evil2root-trading web-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+            
+            if [ -n "$EXTERNAL_IP" ] && [ "$EXTERNAL_IP" != "<pending>" ]; then
+              echo "Application déployée avec succès !"
+              echo "Vous pouvez accéder à l'application en utilisant l'IP: $EXTERNAL_IP"
+              
+              # Enregistrer l'IP dans une variable d'environnement GitHub
+              echo "EXTERNAL_IP=$EXTERNAL_IP" >> $GITHUB_ENV
+              break
+            fi
+            
+            RETRY_COUNT=$((RETRY_COUNT+1))
+            echo "En attente de l'IP externe... ($RETRY_COUNT/$MAX_RETRIES)"
+            sleep 15
+          done
+          
+          if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+            echo "Impossible d'obtenir une IP externe après $MAX_RETRIES tentatives."
+            echo "Veuillez vérifier manuellement l'état du service avec: kubectl get svc -n evil2root-trading web-service"
+            exit 1
+          fi
+      
+      - name: Ajouter l'IP au README
+        run: |
+          if [ -n "$EXTERNAL_IP" ]; then
+            # Crée ou met à jour un fichier ACCESS.md avec l'IP
+            cat > ACCESS.md << EOF
+          # Accès à l'application Evil2Root Trading AI
+          
+          L'application est déployée et accessible via l'adresse IP suivante:
+          
+          **IP:** $EXTERNAL_IP
+          
+          Vous pouvez y accéder directement dans votre navigateur en visitant:
+          
+          http://$EXTERNAL_IP
+          
+          ## Connexion à l'API
+          
+          L'API est accessible à:
+          
+          http://$EXTERNAL_IP/api
+          
+          ## Surveillance et métriques
+          
+          Les métriques sont disponibles à:
+          
+          http://$EXTERNAL_IP/metrics
+          EOF
+            
+            # Commit et push du fichier ACCESS.md
+            git config --local user.email "github-actions[bot]@users.noreply.github.com"
+            git config --local user.name "github-actions[bot]"
+            git add ACCESS.md
+            git commit -m "Mise à jour de l'IP d'accès [skip ci]"
+            git push
+          fi 
