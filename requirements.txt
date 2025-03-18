@@ -14,7 +14,8 @@ requests==2.30.0
 psycopg2-binary==2.9.6
 redis==4.5.5
 psutil==5.9.0
-flask==2.3.2
+flask==2.2.5  # Downgrade de Flask pour être compatible avec Dash
+werkzeug==2.2.3  # Fixe la version de Werkzeug pour résoudre le conflit
 flask-sqlalchemy==3.0.3
 flask-migrate==4.0.4
 flask-login==0.6.2

@@ -29,7 +29,7 @@ COPY requirements-essential.txt requirements.txt ./
 
 # Installation des dépendances principales
 RUN pip install --no-cache-dir -r requirements-essential.txt && \
-    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir --use-deprecated=legacy-resolver -r requirements.txt && \
     pip install --no-cache-dir prometheus_client>=0.16.0 && \
     rm -rf /root/.cache/pip
 
