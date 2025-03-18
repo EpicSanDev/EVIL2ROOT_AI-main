@@ -76,4 +76,13 @@ jspm_packages/
 .DS_Store
 Thumbs.db
 
+# Secrets and local environment files
+.env.local
+.env.*.local
 secrets/
+*secrets.yaml
+*secret*.json
+*api_key*
+*token*
+*password*
+/kubernetes/secrets-*.yaml

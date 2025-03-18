@@ -4,4 +4,4 @@ metadata:
   name: evil2root-trading
   labels:
     name: evil2root-trading
-    app: evil2root-trading 
+    environment: production 

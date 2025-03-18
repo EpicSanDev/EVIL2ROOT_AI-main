@@ -26,9 +26,6 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "9090"
         prometheus.io/path: "/metrics"
-        checksum/config: "${CHECKSUM_CONFIG}"
-        checksum/secrets: "${CHECKSUM_SECRETS}"
-        timestamp: "${TIMESTAMP}"
     spec:
       terminationGracePeriodSeconds: 60
       imagePullSecrets:
@@ -84,7 +81,7 @@ spec:
           capabilities:
             drop:
             - ALL
-          readOnlyRootFilesystem: true
+          readOnlyRootFilesystem: false
         resources:
           requests:
             memory: "1Gi"
@@ -101,7 +98,6 @@ spec:
           mountPath: /app/saved_models
         - name: tmp-volume
           mountPath: /tmp
-          readOnly: false
         livenessProbe:
           httpGet:
             path: /health

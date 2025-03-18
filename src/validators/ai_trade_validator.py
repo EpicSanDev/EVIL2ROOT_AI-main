@@ -82,7 +82,18 @@ class AITradeValidator:
         # Check for OpenRouter API key
         if not self.openrouter_api_key:
             logger.warning("OpenRouter API key not found. AI validation will be limited to ML models only.")
-            self.use_openrouter = False
+            # Notifier l'administrateur si les notifications sont configurées
+            try:
+                from src.services.notification_service import NotificationService
+                notification_service = NotificationService()
+                notification_service.send_admin_notification(
+                    "Configuration incomplète",
+                    "La clé API OpenRouter n'est pas configurée. La validation AI sera limitée aux modèles ML uniquement."
+                )
+            except ImportError:
+                logger.warning("Impossible de notifier l'administrateur : service de notification non disponible.")
+            except Exception as e:
+                logger.warning(f"Erreur lors de la notification : {e}")
         
         # Start listener thread
         self.running = True
@@ -475,7 +486,8 @@ class AITradeValidator:
                             proposed_sl: float, market_data: pd.DataFrame) -> Tuple[bool, float, str]:
         """Validate trade using Claude via OpenRouter API"""
         if not self.openrouter_api_key:
-            return False, 0.0, "OpenRouter API key not available"
+            logger.error("OpenRouter API key not available. AI validation cannot be performed.")
+            return False, 0.0, "La validation avancée par IA n'est pas disponible : clé API OpenRouter manquante. Veuillez configurer cette clé ou désactiver la validation IA avancée."
         
         try:
             # Amélioration: utilisation d'une fenêtre de données plus large pour un meilleur contexte

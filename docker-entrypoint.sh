@@ -14,15 +14,24 @@ echo "Port utilisé: ${PORT:-5000}"
 load_secrets() {
     echo "Chargement des secrets Docker..."
     
-    # Fonction pour charger un secret
+    # Fonction pour charger un secret de manière sécurisée
     load_secret() {
         local file_var="$1_FILE"
         local secret_file="${!file_var}"
         
         if [ -n "$secret_file" ] && [ -f "$secret_file" ]; then
-            local secret_value=$(cat "$secret_file")
+            # Utiliser read pour éviter les problèmes de fin de ligne
+            local secret_value
+            read -r secret_value < "$secret_file"
             export "$1"="$secret_value"
             echo "Secret $1 chargé à partir de $secret_file"
+        else
+            echo "Attention: Secret $1 non trouvé, vérifiez votre configuration"
+            # Ne pas poursuivre si des secrets essentiels sont manquants
+            if [[ "$1" == "DB_USER" || "$1" == "DB_PASSWORD" || "$1" == "SECRET_KEY" ]]; then
+                echo "ERREUR: Secret essentiel $1 manquant. Impossible de démarrer l'application en toute sécurité."
+                exit 1
+            fi
         fi
     }
     
@@ -47,6 +56,12 @@ load_secrets() {
 # Charger les secrets au démarrage
 load_secrets
 
+# Vérification de sécurité : s'assurer que les répertoires critiques sont accessibles
+if [ ! -w "data" ] || [ ! -w "logs" ] || [ ! -w "saved_models" ]; then
+    echo "ERREUR: Les répertoires requis ne sont pas accessibles en écriture. Vérifiez les permissions."
+    exit 1
+fi
+
 # Fonction pour démarrer le scheduler d'analyse en arrière-plan
 start_market_scheduler() {
     echo "Démarrage du scheduler d'analyse de marché..."
@@ -54,6 +69,9 @@ start_market_scheduler() {
     SCHEDULER_PID=$!
     echo "Scheduler démarré avec PID: $SCHEDULER_PID"
     echo $SCHEDULER_PID > /app/.scheduler_pid
+    
+    # Configurer un trap pour arrêter proprement le scheduler lors de l'arrêt
+    trap "echo 'Arrêt du scheduler'; kill -TERM $SCHEDULER_PID 2>/dev/null || true" EXIT
 }
 
 # Détection du mode de fonctionnement
