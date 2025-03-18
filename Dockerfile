@@ -74,24 +74,17 @@ RUN pip install --no-cache-dir optuna hyperopt vaderSentiment nltk scikit-optimi
 
 # Installer les nouvelles dépendances pour l'apprentissage par renforcement et l'analyse de sentiment
 # Nous installons ces dépendances avec des versions spécifiques car elles sont critiques
+RUN pip install --no-cache-dir --upgrade setuptools wheel
+RUN pip install --no-cache-dir gym==0.21.0
 RUN pip install --no-cache-dir \
     stable-baselines3==1.7.0 \
     gymnasium==0.28.1 \
     websocket-client==1.5.1 \
     tweepy==4.12.1 \
     vaderSentiment==3.3.2 \
-    ta-lib==0.4.19 \
     jinja2==3.1.2
-
-# Alternative si ta-lib ne fonctionne pas :
-# RUN pip install --no-cache-dir \
-#     stable-baselines3==1.7.0 \
-#     gymnasium==0.28.1 \
-#     websocket-client==1.5.1 \
-#     tweepy==4.12.1 \
-#     vaderSentiment==3.3.2 \
-#     TA-Box \
-#     jinja2==3.1.2
+# Installation séparée de ta-lib car déjà compilé dans une étape précédente
+RUN pip install --no-cache-dir ta-lib==0.4.19
 
 # Copier le code source
 COPY . .

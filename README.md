@@ -332,3 +332,144 @@ Les principales configurations se trouvent dans le fichier `.env` :
 ### 🧮 Configuration des Modèles
 Personnalisez les paramètres des modèles dans les fichiers de configuration dédiés :
 - `config/models/price_prediction.json`
+
+# EVIL2ROOT Trading Bot - Service Web Complet
+
+Un service web complet pour le bot de trading EVIL2ROOT, comprenant une API RESTful et une interface utilisateur moderne.
+
+## Fonctionnalités
+
+- **API RESTful complète** pour interagir avec le bot de trading
+- **Interface utilisateur moderne** développée avec React et Material UI
+- **Tableau de bord de trading** avec visualisation en temps réel
+- **Gestion des utilisateurs** avec authentification sécurisée
+- **Système d'abonnement** avec différents niveaux de service
+- **Backtesting** pour tester vos stratégies sur des données historiques
+- **Analyses de performance** détaillées
+- **Notifications** par email et dans l'application
+
+## Architecture
+
+Le projet est organisé en deux parties principales :
+
+- **Backend**: API Python FastAPI avec PostgreSQL et Redis
+- **Frontend**: Application React TypeScript avec Material UI
+
+## Prérequis
+
+- Python 3.8+
+- Node.js 16+
+- PostgreSQL
+- Redis
+- Connexion Internet (pour les données de marché en temps réel)
+
+## Installation
+
+### Backend (API)
+
+1. Clonez le dépôt :
+```bash
+git clone https://github.com/yourusername/EVIL2ROOT_AI.git
+cd EVIL2ROOT_AI
+```
+
+2. Créez un environnement virtuel et installez les dépendances :
+```bash
+python -m venv venv
+source venv/bin/activate  # Sur Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+3. Configurez les variables d'environnement :
+```bash
+cp .env.example .env
+# Modifiez .env avec vos paramètres
+```
+
+4. Lancez l'API :
+```bash
+python src/api/run_api.py
+```
+
+L'API sera disponible à l'adresse http://localhost:8000.
+
+### Frontend
+
+1. Allez dans le dossier frontend :
+```bash
+cd frontend
+```
+
+2. Installez les dépendances :
+```bash
+npm install
+```
+
+3. Configurez les variables d'environnement :
+```bash
+cp .env.example .env
+# Modifiez .env avec vos paramètres
+```
+
+4. Lancez l'application :
+```bash
+npm start
+```
+
+L'interface sera disponible à l'adresse http://localhost:3000.
+
+## Utilisation
+
+### API
+
+L'API est documentée avec Swagger UI, accessible à l'adresse http://localhost:8000/docs.
+
+Points d'entrée principaux :
+- `/api/auth/*` - Authentification et gestion des utilisateurs
+- `/api/trading/*` - Opérations de trading
+- `/api/dashboard/*` - Données du tableau de bord
+- `/api/settings/*` - Configuration du bot
+- `/api/subscriptions/*` - Gestion des abonnements
+- `/api/backtest/*` - Backtesting
+
+### Interface utilisateur
+
+L'interface utilisateur comprend :
+- Page d'accueil publique
+- Pages d'authentification (connexion, inscription)
+- Tableau de bord principal
+- Page de trading
+- Gestion des positions et ordres
+- Analyse des signaux
+- Backtesting
+- Paramètres du compte et du bot
+- Gestion de l'abonnement
+
+## Déploiement
+
+### Production
+
+Pour un déploiement en production :
+
+1. Construisez le frontend :
+```bash
+cd frontend
+npm run build
+```
+
+2. Servez les fichiers statiques avec un serveur web comme Nginx.
+
+3. Exécutez l'API avec un serveur ASGI comme uvicorn avec plusieurs workers :
+```bash
+uvicorn src.api.app:create_app --host 0.0.0.0 --port 8000 --workers 4
+```
+
+4. Configurez un proxy inverse pour diriger les requêtes `/api` vers le backend.
+
+## Licence
+
+© 2023 EVIL2ROOT. Tous droits réservés.
+
+## Contact
+
+Pour toute question ou suggestion, veuillez contacter support@evil2root.com.
