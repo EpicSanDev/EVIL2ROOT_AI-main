@@ -128,6 +128,26 @@ jobs:
 
       - name: Deploy application components
         run: |
+          # Supprimer les déploiements existants s'ils existent
+          echo "Suppression des déploiements existants..."
+          kubectl delete deployment trading-bot-web --namespace=${{ env.NAMESPACE }} --ignore-not-found=true
+          kubectl delete deployment analysis-bot --namespace=${{ env.NAMESPACE }} --ignore-not-found=true
+          kubectl delete deployment market-scheduler --namespace=${{ env.NAMESPACE }} --ignore-not-found=true
+          
+          # Attendre que les pods soient complètement supprimés
+          echo "Attente de la suppression complète des pods..."
+          kubectl wait --for=delete pod --selector=app=trading-bot-web --namespace=${{ env.NAMESPACE }} --timeout=60s || true
+          kubectl wait --for=delete pod --selector=app=analysis-bot --namespace=${{ env.NAMESPACE }} --timeout=60s || true
+          kubectl wait --for=delete pod --selector=app=market-scheduler --namespace=${{ env.NAMESPACE }} --timeout=60s || true
+          
+          # Déploiement des composants de l'application
+          echo "Déploiement des nouveaux composants avec l'image: ${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.DEPLOYMENT_NAME }}:${{ github.sha }}"
+          
+          # Mise à jour des fichiers de déploiement avec la dernière image
+          sed -i "s|image:.*|image: ${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.DEPLOYMENT_NAME }}:${{ github.sha }}|g" kubernetes/deployments/trading-bot-web.yaml
+          sed -i "s|image:.*|image: ${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.DEPLOYMENT_NAME }}:${{ github.sha }}|g" kubernetes/deployments/analysis-bot.yaml
+          sed -i "s|image:.*|image: ${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.DEPLOYMENT_NAME }}:${{ github.sha }}|g" kubernetes/deployments/market-scheduler.yaml
+          
           # Déploiement des composants de l'application
           kubectl apply -f kubernetes/deployments/trading-bot-web.yaml
           kubectl apply -f kubernetes/deployments/analysis-bot.yaml
