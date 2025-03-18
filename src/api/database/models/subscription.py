@@ -172,7 +172,7 @@ class Payment(BaseModel):
     payment_date = Column(DateTime, nullable=True)
     
     # Métadonnées
-    metadata = Column(JSON, nullable=True)
+    payment_metadata = Column(JSON, nullable=True)
     
     def __repr__(self):
         return f"<Payment(id={self.id}, amount={self.amount}, status={self.payment_status})>"
@@ -189,7 +189,7 @@ class Payment(BaseModel):
             "transaction_id": self.transaction_id,
             "payment_provider": self.payment_provider,
             "payment_date": self.payment_date,
-            "metadata": self.metadata,
+            "metadata": self.payment_metadata,
             "created_at": self.created_at,
             "updated_at": self.updated_at
         } 
