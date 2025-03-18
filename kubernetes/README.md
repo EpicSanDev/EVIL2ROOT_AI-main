@@ -35,6 +35,16 @@ La configuration Kubernetes a été mise à jour avec les améliorations suivant
    - Génération de checksums pour la détection des changements de configuration
    - Prise en compte des timestamps pour forcer les redéploiements si nécessaire
 
+6. **Interface utilisateur moderne**:
+   - Frontend React déployé séparément pour une meilleure scalabilité
+   - Livraison optimisée via Nginx avec compression et cache
+   - Protection HTTPS avec headers de sécurité renforcés
+
+7. **Architecture microservices**:
+   - API FastAPI séparée du backend pour une meilleure maintenabilité
+   - Communication inter-services optimisée
+   - Gestion CORS sécurisée pour l'interaction frontend-API
+
 ## Structure des fichiers
 
 - `namespace.yaml` - Définition du namespace dédié
@@ -43,7 +53,9 @@ La configuration Kubernetes a été mise à jour avec les améliorations suivant
 - `storage.yaml` - Volumes persistants
 - `db-deployment.yaml` - Déploiement PostgreSQL
 - `redis-deployment.yaml` - Déploiement Redis
-- `web-deployment.yaml` - Interface web du trading bot
+- `web-deployment.yaml` - API Backend du trading bot
+- `frontend-deployment.yaml` - Interface utilisateur React
+- `api-deployment.yaml` - API FastAPI pour l'interface utilisateur
 - `analysis-bot-deployment.yaml` - Service d'analyse en continu
 - `market-scheduler-deployment.yaml` - Planificateur d'ordres de marché
 - `train-analyze-job.yaml` - Jobs d'entraînement et d'analyse

@@ -9,6 +9,8 @@ resources:
   - db-deployment.yaml
   - redis-deployment.yaml
   - web-deployment.yaml
+  - frontend-deployment.yaml
+  - api-deployment.yaml
   - analysis-bot-deployment.yaml
   - market-scheduler-deployment.yaml
   - train-analyze-job.yaml

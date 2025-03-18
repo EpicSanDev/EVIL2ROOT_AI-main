@@ -75,6 +75,7 @@ RUN pip install --no-cache-dir optuna hyperopt vaderSentiment nltk scikit-optimi
 # Installer les nouvelles dépendances pour l'apprentissage par renforcement et l'analyse de sentiment
 # Nous installons ces dépendances avec des versions spécifiques car elles sont critiques
 RUN pip install --no-cache-dir --upgrade setuptools wheel
+RUN pip install --no-cache-dir setuptools==59.5.0
 RUN pip install --no-cache-dir gym==0.21.0
 RUN pip install --no-cache-dir \
     stable-baselines3==1.7.0 \
