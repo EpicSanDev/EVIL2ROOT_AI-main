@@ -35,7 +35,7 @@ protobuf==3.20.3  # Version compatible avec tensorflow 2.15.0
 
 # AI/ML Dependencies
 tensorflow==2.15.0
-keras==2.15.0
+keras==3.9.0
 pytorch-lightning==2.0.2
 torch>=1.13.0,<2.1.0  # Version compatible avec optimum, stable-baselines3 et fastai
 torchvision==0.15.2
@@ -81,7 +81,7 @@ backtrader==1.9.76.123
 
 # Monitoring & Visualization
 plotly==5.14.1  # Version exacte pour stabilité
-dash==2.10.0    # Version exacte pour stabilité
+dash==2.15.0    # Version exacte pour stabilité
 prometheus_client==0.16.0  # Pour la surveillance avec Prometheus
 # streamlit==1.22.0       # Commenté car pas utilisé directement dans l'app mais par Plotly
 # bokeh==3.1.1            # Commenté car pas utilisé directement dans l'app
