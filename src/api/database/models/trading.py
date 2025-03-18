@@ -320,7 +320,7 @@ class Trade(BaseModel):
     
     # Notes et métadonnées
     notes = Column(Text, nullable=True)
-    metadata = Column(JSON, nullable=True)
+    trade_metadata = Column(JSON, nullable=True)
     
     def __repr__(self):
         return f"<Trade(id={self.id}, type={self.trade_type}, status={self.status})>"
@@ -348,7 +348,7 @@ class Trade(BaseModel):
             "profit_loss_percentage": self.profit_loss_percentage,
             "fees": float(self.fees),
             "notes": self.notes,
-            "metadata": self.metadata,
+            "metadata": self.trade_metadata,
             "created_at": self.created_at,
             "updated_at": self.updated_at
         }
