@@ -36,27 +36,61 @@ kubectl create namespace evil2root-trading --dry-run=client -o yaml | kubectl ap
 
 # Authentification au registre DigitalOcean
 log "Vérification de l'authentification au registre DigitalOcean..."
-if command -v doctl &> /dev/null; then
-  log "Tentative d'authentification au registre DigitalOcean..."
-  if ! doctl registry login; then
-    warn "Impossible de se connecter automatiquement au registre DigitalOcean."
-    warn "Si vous avez déjà un token API, créez le secret manuellement avec:"
-    echo "kubectl create secret docker-registry registry-evil2root-registry \\"
-    echo "  --docker-server=registry.digitalocean.com \\"
-    echo "  --docker-username=<VOTRE_TOKEN_API> \\"
-    echo "  --docker-password=<VOTRE_TOKEN_API> \\"
-    echo "  --docker-email=<VOTRE_EMAIL> \\"
-    echo "  -n evil2root-trading"
-    
-    read -p "Voulez-vous continuer le déploiement? (y/n) " -n 1 -r
+
+# Vérifier si le secret registry-evil2root-registry existe déjà
+if kubectl get secret registry-evil2root-registry -n evil2root-trading &> /dev/null; then
+  log "Le secret registry-evil2root-registry existe déjà."
+else
+  log "Le secret registry-evil2root-registry n'existe pas encore."
+  if command -v doctl &> /dev/null; then
+    log "Tentative d'authentification au registre DigitalOcean..."
+    if ! doctl registry login; then
+      warn "Impossible de se connecter automatiquement au registre DigitalOcean."
+      
+      # Demander les informations manuellement
+      read -p "Veuillez entrer votre token API DigitalOcean: " DO_API_TOKEN
+      read -p "Veuillez entrer votre adresse email: " DO_EMAIL
+      
+      if [ -n "$DO_API_TOKEN" ] && [ -n "$DO_EMAIL" ]; then
+        log "Création manuelle du secret registry-evil2root-registry..."
+        kubectl create secret docker-registry registry-evil2root-registry \
+          --docker-server=registry.digitalocean.com \
+          --docker-username=$DO_API_TOKEN \
+          --docker-password=$DO_API_TOKEN \
+          --docker-email=$DO_EMAIL \
+          -n evil2root-trading
+      else
+        warn "Token API ou email non fourni. Le secret de registre n'a pas été créé."
+        read -p "Voulez-vous continuer le déploiement? (y/n) " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+          error "Déploiement annulé."
+          exit 1
+        fi
+      fi
+    fi
+  else
+    warn "La commande doctl n'est pas disponible. L'authentification au registre doit être configurée manuellement."
+    # Demander les informations manuellement
+    read -p "Voulez-vous configurer manuellement le secret registry? (y/n) " -n 1 -r
     echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-      error "Déploiement annulé."
-      exit 1
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      read -p "Veuillez entrer votre token API DigitalOcean: " DO_API_TOKEN
+      read -p "Veuillez entrer votre adresse email: " DO_EMAIL
+      
+      if [ -n "$DO_API_TOKEN" ] && [ -n "$DO_EMAIL" ]; then
+        log "Création manuelle du secret registry-evil2root-registry..."
+        kubectl create secret docker-registry registry-evil2root-registry \
+          --docker-server=registry.digitalocean.com \
+          --docker-username=$DO_API_TOKEN \
+          --docker-password=$DO_API_TOKEN \
+          --docker-email=$DO_EMAIL \
+          -n evil2root-trading
+      else
+        warn "Token API ou email non fourni. Le secret de registre n'a pas été créé."
+      fi
     fi
   fi
-else
-  warn "La commande doctl n'est pas disponible. L'authentification au registre doit être configurée manuellement."
 fi
 
 # Application des secrets

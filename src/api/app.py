@@ -12,6 +12,7 @@ import time
 import logging
 from pathlib import Path
 import uvicorn
+import os
 
 from src.api.routes import (
     auth,
@@ -41,12 +42,18 @@ def create_app(debug=False):
     )
     
     # Configuration CORS
+    allowed_origins = ["http://localhost:3000"]
+    if not debug:
+        # En production, n'autoriser que les domaines spécifiques
+        prod_frontend_url = os.getenv("FRONTEND_URL", "https://ui.trading.example.com")
+        allowed_origins = [prod_frontend_url]
+    
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # En production, spécifier les domaines autorisés
+        allow_origins=allowed_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
     )
     
     # Middlewares personnalisés

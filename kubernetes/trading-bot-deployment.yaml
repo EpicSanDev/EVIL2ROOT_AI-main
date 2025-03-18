@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
       - name: trading-bot
-        image: ${DOCKER_REGISTRY}/trading-bot:latest
+        image: registry.digitalocean.com/evil2root-registry/trading-bot:latest
         imagePullPolicy: Always
         resources:
           requests:

@@ -1,7 +1,5 @@
 import axios from 'axios';
-
-// Configuration de l'URL de l'API
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
+import { API_URL, API_ENDPOINTS } from '../config';
 
 // Création d'une instance axios avec les en-têtes d'authentification
 const authAxios = axios.create({
@@ -21,6 +19,19 @@ authAxios.interceptors.request.use(
     return config;
   },
   (error) => Promise.reject(error)
+);
+
+// Intercepteur pour gérer les erreurs d'authentification (token expiré, etc.)
+authAxios.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && error.response.status === 401) {
+      // Si nous recevons une erreur 401, le token est probablement expiré
+      localStorage.removeItem('token');
+      window.location.href = '/login?session=expired';
+    }
+    return Promise.reject(error);
+  }
 );
 
 // Interface pour les données d'inscription
@@ -66,7 +77,12 @@ const authService = {
       password,
       full_name: fullName,
     };
-    return axios.post(`${API_URL}/auth/register`, data);
+    try {
+      return await axios.post(`${API_URL}${API_ENDPOINTS.AUTH.REGISTER}`, data);
+    } catch (error) {
+      console.error('Erreur lors de l\'inscription:', error);
+      throw error;
+    }
   },
   
   // Connexion d'un utilisateur
@@ -75,47 +91,82 @@ const authService = {
     formData.append('username', email);
     formData.append('password', password);
     
-    return axios.post<LoginResponse>(`${API_URL}/auth/login`, formData, {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-    });
+    try {
+      return await axios.post<LoginResponse>(`${API_URL}${API_ENDPOINTS.AUTH.LOGIN}`, formData, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      });
+    } catch (error) {
+      console.error('Erreur lors de la connexion:', error);
+      throw error;
+    }
   },
   
   // Récupération de l'utilisateur actuel
   getCurrentUser: async () => {
-    return authAxios.get(`${API_URL}/auth/me`);
+    try {
+      return await authAxios.get(`${API_ENDPOINTS.AUTH.ME}`);
+    } catch (error) {
+      console.error('Erreur lors de la récupération du profil:', error);
+      throw error;
+    }
   },
   
   // Mise à jour du profil utilisateur
   updateUser: async (userData: UserUpdateData) => {
-    return authAxios.put(`${API_URL}/auth/me`, userData);
+    try {
+      return await authAxios.put(`${API_ENDPOINTS.AUTH.ME}`, userData);
+    } catch (error) {
+      console.error('Erreur lors de la mise à jour du profil:', error);
+      throw error;
+    }
   },
   
   // Changement de mot de passe
   changePassword: async (currentPassword: string, newPassword: string) => {
-    return authAxios.post(`${API_URL}/auth/change-password`, {
-      current_password: currentPassword,
-      new_password: newPassword,
-    });
+    try {
+      return await authAxios.post(`${API_ENDPOINTS.AUTH.CHANGE_PASSWORD}`, {
+        current_password: currentPassword,
+        new_password: newPassword,
+      });
+    } catch (error) {
+      console.error('Erreur lors du changement de mot de passe:', error);
+      throw error;
+    }
   },
   
   // Demande de réinitialisation de mot de passe
   resetPassword: async (email: string) => {
-    return axios.post(`${API_URL}/auth/forgot-password`, { email });
+    try {
+      return await axios.post(`${API_URL}${API_ENDPOINTS.AUTH.FORGOT_PASSWORD}`, { email });
+    } catch (error) {
+      console.error('Erreur lors de la demande de réinitialisation:', error);
+      throw error;
+    }
   },
   
   // Réinitialisation de mot de passe avec token
   confirmResetPassword: async (token: string, newPassword: string) => {
-    return axios.post(`${API_URL}/auth/reset-password`, {
-      token,
-      new_password: newPassword,
-    });
+    try {
+      return await axios.post(`${API_URL}${API_ENDPOINTS.AUTH.RESET_PASSWORD}`, {
+        token,
+        new_password: newPassword,
+      });
+    } catch (error) {
+      console.error('Erreur lors de la réinitialisation du mot de passe:', error);
+      throw error;
+    }
   },
   
   // Suppression du compte
   deleteAccount: async () => {
-    return authAxios.delete(`${API_URL}/auth/me`);
+    try {
+      return await authAxios.delete(`${API_ENDPOINTS.AUTH.ME}`);
+    } catch (error) {
+      console.error('Erreur lors de la suppression du compte:', error);
+      throw error;
+    }
   },
 };
 

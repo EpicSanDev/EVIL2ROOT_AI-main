@@ -112,6 +112,12 @@ jobs:
           if ! kubectl get namespace ingress-nginx &> /dev/null; then
             echo "Installation de Nginx Ingress Controller..."
             kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/cloud/deploy.yaml
+            
+            echo "Attente de l'initialisation du contrôleur Ingress Nginx..."
+            kubectl wait --namespace ingress-nginx \
+              --for=condition=ready pod \
+              --selector=app.kubernetes.io/component=controller \
+              --timeout=180s || echo "Le délai d'attente pour l'ingress controller a expiré, mais on continue"
           else
             echo "Nginx Ingress Controller est déjà installé."
           fi
@@ -131,8 +137,14 @@ jobs:
           kubectl apply -f kubernetes/services/trading-bot-web.yaml
           kubectl apply -f kubernetes/services/web-service.yaml
           
-          # Déploiement de l'ingress
-          kubectl apply -f kubernetes/ingress/trading-bot-web-ingress.yaml
+          # Déploiement de l'ingress (avec une pause pour s'assurer que le webhook est prêt)
+          echo "Attente avant le déploiement de l'ingress..."
+          sleep 30
+          kubectl apply -f kubernetes/ingress/trading-bot-web-ingress.yaml || {
+            echo "Première tentative de déploiement de l'ingress échouée. Attente supplémentaire..."
+            sleep 60
+            kubectl apply -f kubernetes/ingress/trading-bot-web-ingress.yaml
+          }
           
           # Déploiement des autoscalers
           kubectl apply -f kubernetes/hpa/trading-bot-web-hpa.yaml

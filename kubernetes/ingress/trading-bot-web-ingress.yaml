@@ -4,9 +4,9 @@ metadata:
   name: trading-bot-web-ingress
   namespace: evil2root-trading
   annotations:
-    kubernetes.io/ingress.class: "nginx"
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
 spec:
+  ingressClassName: nginx
   tls:
   - hosts:
     - trading.example.com
