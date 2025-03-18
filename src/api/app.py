@@ -24,6 +24,7 @@ from src.api.routes import (
 from src.api.middleware.authentication import authenticate_request
 from src.api.middleware.rate_limit import RateLimitMiddleware
 from src.api.middleware.logging import LoggingMiddleware
+from src.api.database import init_db
 from src.utils.log_config import setup_logging
 
 logger = setup_logging("api", "api.log")
@@ -101,6 +102,18 @@ def create_app(debug=False):
     static_path = Path(__file__).parent / "static"
     if static_path.exists():
         app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
+    
+    # Événement de démarrage pour initialiser la base de données
+    @app.on_event("startup")
+    async def startup_event():
+        """Initialise la base de données au démarrage de l'application."""
+        try:
+            logger.info("Initialisation de la base de données...")
+            await init_db()
+            logger.info("Base de données initialisée avec succès")
+        except Exception as e:
+            logger.error(f"Erreur lors de l'initialisation de la base de données: {e}", exc_info=True)
+            # Ne pas lever d'exception ici pour permettre à l'API de démarrer même si la DB échoue
     
     return app
 

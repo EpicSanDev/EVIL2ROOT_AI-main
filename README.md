@@ -350,126 +350,166 @@ Un service web complet pour le bot de trading EVIL2ROOT, comprenant une API REST
 
 ## Architecture
 
-Le projet est organisé en deux parties principales :
+Le projet est organisé en plusieurs composants :
 
-- **Backend**: API Python FastAPI avec PostgreSQL et Redis
-- **Frontend**: Application React TypeScript avec Material UI
+- **API** : API FastAPI pour interagir avec le système
+- **Backend** : Logique métier et intégration avec les plateformes d'échange
+- **Frontend** : Interface utilisateur React/TypeScript pour la configuration et le monitoring
+- **Base de données** : PostgreSQL pour stocker les données utilisateurs, les configurations et les résultats de trading
 
 ## Prérequis
 
-- Python 3.8+
+- Python 3.10+
 - Node.js 16+
-- PostgreSQL
-- Redis
-- Connexion Internet (pour les données de marché en temps réel)
+- PostgreSQL 14+
+- Docker (optionnel)
 
 ## Installation
 
-### Backend (API)
+### Configuration de la base de données
+
+1. Installez PostgreSQL si ce n'est pas déjà fait :
+
+```bash
+# Sur Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install postgresql postgresql-contrib
+
+# Sur macOS avec Homebrew
+brew install postgresql
+```
+
+2. Créez une base de données pour le projet :
+
+```bash
+sudo -u postgres psql
+CREATE DATABASE evil2root;
+CREATE USER evil2root_user WITH ENCRYPTED PASSWORD 'your_password';
+GRANT ALL PRIVILEGES ON DATABASE evil2root TO evil2root_user;
+\q
+```
+
+### Backend
 
 1. Clonez le dépôt :
+
 ```bash
 git clone https://github.com/yourusername/EVIL2ROOT_AI.git
 cd EVIL2ROOT_AI
 ```
 
-2. Créez un environnement virtuel et installez les dépendances :
+2. Créez et activez un environnement virtuel :
+
 ```bash
 python -m venv venv
-source venv/bin/activate  # Sur Windows: venv\Scripts\activate
+source venv/bin/activate  # Sur Windows : venv\Scripts\activate
+```
+
+3. Installez les dépendances :
+
+```bash
 pip install -r requirements.txt
 ```
 
-3. Configurez les variables d'environnement :
+4. Configurez les variables d'environnement :
+
 ```bash
 cp .env.example .env
-# Modifiez .env avec vos paramètres
+# Éditez le fichier .env selon votre configuration
 ```
 
-4. Lancez l'API :
+5. Initialisez la base de données :
+
 ```bash
-python src/api/run_api.py
+# Pour initialiser la base de données
+python -m src.api.run_api --init-db
+
+# Pour exécuter les migrations
+alembic upgrade head
 ```
 
-L'API sera disponible à l'adresse http://localhost:8000.
+6. Lancez l'API :
+
+```bash
+python -m src.api.run_api
+```
 
 ### Frontend
 
-1. Allez dans le dossier frontend :
+1. Installez les dépendances :
+
 ```bash
 cd frontend
-```
-
-2. Installez les dépendances :
-```bash
 npm install
 ```
 
-3. Configurez les variables d'environnement :
-```bash
-cp .env.example .env
-# Modifiez .env avec vos paramètres
-```
+2. Lancez l'application en mode développement :
 
-4. Lancez l'application :
 ```bash
 npm start
 ```
 
-L'interface sera disponible à l'adresse http://localhost:3000.
+## Utilisation avec Docker
 
-## Utilisation
+Un fichier docker-compose.yml est fourni pour faciliter le déploiement :
 
-### API
-
-L'API est documentée avec Swagger UI, accessible à l'adresse http://localhost:8000/docs.
-
-Points d'entrée principaux :
-- `/api/auth/*` - Authentification et gestion des utilisateurs
-- `/api/trading/*` - Opérations de trading
-- `/api/dashboard/*` - Données du tableau de bord
-- `/api/settings/*` - Configuration du bot
-- `/api/subscriptions/*` - Gestion des abonnements
-- `/api/backtest/*` - Backtesting
-
-### Interface utilisateur
-
-L'interface utilisateur comprend :
-- Page d'accueil publique
-- Pages d'authentification (connexion, inscription)
-- Tableau de bord principal
-- Page de trading
-- Gestion des positions et ordres
-- Analyse des signaux
-- Backtesting
-- Paramètres du compte et du bot
-- Gestion de l'abonnement
-
-## Déploiement
-
-### Production
-
-Pour un déploiement en production :
-
-1. Construisez le frontend :
 ```bash
-cd frontend
-npm run build
+docker-compose up -d
 ```
 
-2. Servez les fichiers statiques avec un serveur web comme Nginx.
+## Structure de la base de données
 
-3. Exécutez l'API avec un serveur ASGI comme uvicorn avec plusieurs workers :
-```bash
-uvicorn src.api.app:create_app --host 0.0.0.0 --port 8000 --workers 4
+La base de données est organisée selon le schéma suivant :
+
+- **users** : Informations sur les utilisateurs
+- **userpreferences** : Préférences des utilisateurs
+- **passwordresettokens** : Tokens de réinitialisation de mot de passe
+- **subscriptions** : Définition des plans d'abonnement
+- **usersubscriptions** : Abonnements souscrits par les utilisateurs
+- **payments** : Paiements effectués pour les abonnements
+- **exchanges** : Informations sur les plateformes d'échange
+- **symbols** : Symboles (paires de trading) disponibles
+- **tradingaccounts** : Comptes de trading des utilisateurs
+- **tradingstrategys** : Stratégies de trading configurées
+- **trades** : Transactions effectuées
+- **backtestresults** : Résultats des backtests de stratégies
+
+## API Documentation
+
+La documentation de l'API est disponible à l'adresse suivante une fois l'API lancée :
+
+```
+http://localhost:8000/docs
 ```
 
-4. Configurez un proxy inverse pour diriger les requêtes `/api` vers le backend.
+## Développement
+
+### Migrations de base de données
+
+Pour créer une nouvelle migration après avoir modifié les modèles :
+
+```bash
+alembic revision --autogenerate -m "Description du changement"
+```
+
+Pour appliquer les migrations :
+
+```bash
+alembic upgrade head
+```
+
+### Tests
+
+Pour exécuter les tests :
+
+```bash
+pytest
+```
 
 ## Licence
 
-© 2023 EVIL2ROOT. Tous droits réservés.
+Ce projet est sous licence [MIT](LICENSE).
 
 ## Contact
 
-Pour toute question ou suggestion, veuillez contacter support@evil2root.com.
+Pour toute question ou suggestion, veuillez nous contacter à info@evil2root.com
