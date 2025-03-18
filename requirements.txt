@@ -128,6 +128,7 @@ asyncpg==0.28.0
 python-jose==3.3.0
 passlib==1.7.4
 bcrypt==4.0.1
+PyJWT==2.8.0
 
 # Utilitaires
 httpx==0.24.1

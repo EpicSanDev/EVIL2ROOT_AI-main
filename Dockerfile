@@ -27,6 +27,7 @@ RUN chmod +x /tmp/fix-hnswlib-install.sh
 # Installation des dépendances Python
 RUN pip install --no-cache-dir --upgrade pip wheel setuptools && \
     pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir PyJWT && \
     /tmp/fix-hnswlib-install.sh
 
 # Copie du code source
