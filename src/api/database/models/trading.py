@@ -9,7 +9,7 @@ from datetime import datetime
 from decimal import Decimal
 from sqlalchemy import (
     Column, String, Boolean, DateTime, ForeignKey, 
-    Integer, Numeric, JSON, Text, Enum, Float, Table
+    Integer, Numeric, JSON, Text, Enum, Float, Table, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
 import enum
@@ -149,7 +149,7 @@ class Symbol(BaseModel):
     __table_args__ = (
         # Contrainte d'unicité pour le nom sur un échange donné
         # (un même symbole peut exister sur différents échanges)
-        {"UniqueConstraint": ("name", "exchange_id")}
+        UniqueConstraint("name", "exchange_id"),
     )
     
     def __repr__(self):
