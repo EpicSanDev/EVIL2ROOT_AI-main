@@ -31,14 +31,14 @@ spec:
         timestamp: "${TIMESTAMP}"
     spec:
       imagePullSecrets:
-      - name: registry-epicsandev
+      - name: registry-evil2root-registry
       securityContext:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
       containers:
       - name: market-scheduler
-        image: registry.digitalocean.com/epicsandev/evil2root-ai:latest
+        image: registry.digitalocean.com/evil2root-registry/evil2root-ai:latest
         imagePullPolicy: Always
         args: ["scheduler"]
         ports:
