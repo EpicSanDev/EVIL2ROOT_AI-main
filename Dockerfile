@@ -1,95 +1,81 @@
-FROM python:3.9-slim AS builder
+FROM python:3.9-slim
 
-# Arguments de build pour les métadonnées
-ARG BUILD_DATE
-ARG GIT_COMMIT
-ARG DEBIAN_FRONTEND=noninteractive
-
-# Set environment variables
+# Définir les variables d'environnement
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    TZ=UTC \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PATH="/opt/venv/bin:$PATH"
+    PYTHONIOENCODING=UTF-8 \
+    TZ=UTC
 
-# Create working directory
-WORKDIR /app
-
-# Install system dependencies, create virtual environment, and cleanup in one layer
+# Installer les dépendances système
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     git \
     curl \
-    && python -m venv /opt/venv \
-    && rm -rf /var/lib/apt/lists/*
-
-# Installer les dépendances en une seule couche pour optimiser la taille de l'image
-COPY requirements-essential.txt requirements.txt ./
-
-# Installation des dépendances principales
-RUN pip install --no-cache-dir -r requirements-essential.txt && \
-    pip install --no-cache-dir --use-deprecated=legacy-resolver -r requirements.txt && \
-    pip install --no-cache-dir prometheus_client>=0.16.0 && \
-    rm -rf /root/.cache/pip
-
-# Multi-stage build for smaller final image
-FROM python:3.9-slim AS runtime
-
-# Métadonnées pour la traçabilité et la gestion des images
-LABEL org.opencontainers.image.title="Evil2Root AI" \
-      org.opencontainers.image.vendor="Evil2Root" \
-      maintainer="Evil2Root Team"
-
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    TZ=UTC \
-    FLASK_APP=run.py \
-    FLASK_ENV=production \
-    PATH="/opt/venv/bin:$PATH" \
-    # Configuration spécifique pour DigitalOcean App Platform
-    PORT=8080 \
-    # Plus de journalisation pour faciliter le débogage
-    GUNICORN_CMD_ARGS="--access-logfile=- --error-logfile=- --log-level=info"
-
-# Install only runtime dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
     ca-certificates \
+    libffi-dev \
+    libssl-dev \
+    libblas-dev \
+    liblapack-dev \
+    gfortran \
+    pkg-config \
+    gcc \
+    g++ \
+    cmake \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Create working directory and application user for security
-RUN useradd -m -s /bin/bash -u 1000 appuser && \
-    mkdir -p /app/data /app/logs /app/saved_models && \
-    chown -R appuser:appuser /app
-
+# Créer un répertoire de travail
 WORKDIR /app
 
-# Copy virtual environment from builder stage
-COPY --from=builder /opt/venv /opt/venv
+# Copier les fichiers de dépendances d'abord (pour tirer parti du cache de Docker)
+COPY requirements.txt requirements-essential.txt ./
 
-# Copy application code
-COPY --chown=appuser:appuser . .
+# Installer les dépendances essentielles en premier
+RUN pip install --no-cache-dir -r requirements-essential.txt
 
-# Set permissions
-RUN chmod -R 755 /app && \
-    chmod -R 777 /app/data /app/logs /app/saved_models && \
-    chmod +x docker-entrypoint.sh docker/prepare-scripts.sh && \
-    ./docker/prepare-scripts.sh
+# Installer TensorFlow séparément pour une meilleure compatibilité
+RUN pip install --no-cache-dir tensorflow==2.11.0
 
-# Change to non-root user
-USER appuser
+# Installer PyTorch (sans CUDA pour réduire la taille)
+RUN pip install --no-cache-dir torch==1.13.1+cpu torchvision==0.14.1+cpu -f https://download.pytorch.org/whl/cpu/torch_stable.html
 
-# Health check adapté pour DigitalOcean (utilisera la variable PORT)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:${PORT}/health || exit 1
+# Installer les dépendances Hugging Face
+RUN pip install --no-cache-dir transformers==4.28.1
 
-# Expose port pour DigitalOcean - utilisera la variable PORT injectée
-EXPOSE ${PORT}
+# Installer les dépendances restantes
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Set entrypoint
+# Installer les nouvelles dépendances pour l'apprentissage par renforcement et l'analyse de sentiment
+RUN pip install --no-cache-dir \
+    stable-baselines3==1.7.0 \
+    ta==0.10.2 \
+    gymnasium==0.28.1 \
+    websocket-client==1.5.1 \
+    tweepy==4.12.1 \
+    vaderSentiment==3.3.2 \
+    talib-binary==0.4.19 \
+    beautifulsoup4==4.12.2 \
+    seaborn==0.12.2 \
+    jinja2==3.1.2 \
+    scikit-learn==1.2.2
+
+# Copier le code source
+COPY . .
+
+# S'assurer que les scripts sont exécutables
+RUN chmod +x docker-entrypoint.sh init-secrets.sh
+
+# Créer les répertoires nécessaires
+RUN mkdir -p logs data saved_models results config
+
+# Ajouter un utilisateur non-root
+RUN adduser --disabled-password --gecos "" trader
+RUN chown -R trader:trader /app
+USER trader
+
+# Exposer le port pour l'API (si applicable)
+EXPOSE 8000
+
+# Point d'entrée et commande par défaut
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
-
-# Default command - utilisera la variable PORT injectée par DigitalOcean
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT} run:app"]
+CMD ["python", "src/main_trading_bot.py"]

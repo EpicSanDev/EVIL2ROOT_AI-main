@@ -1,0 +1,215 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trading-bot
+  labels:
+    app: trading-bot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trading-bot
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: trading-bot
+    spec:
+      containers:
+      - name: trading-bot
+        image: ${DOCKER_REGISTRY}/trading-bot:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        env:
+        - name: TZ
+          value: "UTC"
+        # Clés API pour les services externes
+        - name: BINANCE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: trading-bot-secrets
+              key: binance-api-key
+        - name: BINANCE_API_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: trading-bot-secrets
+              key: binance-api-secret
+        - name: NEWSAPI_KEY
+          valueFrom:
+            secretKeyRef:
+              name: trading-bot-secrets
+              key: newsapi-key
+        - name: FINNHUB_KEY
+          valueFrom:
+            secretKeyRef:
+              name: trading-bot-secrets
+              key: finnhub-key
+        - name: TWITTER_CONSUMER_KEY
+          valueFrom:
+            secretKeyRef:
+              name: trading-bot-secrets
+              key: twitter-consumer-key
+              optional: true
+        - name: TWITTER_CONSUMER_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: trading-bot-secrets
+              key: twitter-consumer-secret
+              optional: true
+        - name: TWITTER_ACCESS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: trading-bot-secrets
+              key: twitter-access-token
+              optional: true
+        - name: TWITTER_ACCESS_TOKEN_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: trading-bot-secrets
+              key: twitter-access-token-secret
+              optional: true
+        # Arguments de lancement
+        args:
+          - "python"
+          - "src/main_trading_bot.py"
+          - "--config"
+          - "/app/config/bot_config.json"
+        volumeMounts:
+        - name: config-volume
+          mountPath: /app/config
+        - name: data-volume
+          mountPath: /app/data
+        - name: models-volume
+          mountPath: /app/saved_models
+        - name: logs-volume
+          mountPath: /app/logs
+        - name: results-volume
+          mountPath: /app/results
+        livenessProbe:
+          exec:
+            command:
+            - pgrep
+            - -f
+            - main_trading_bot.py
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+        readinessProbe:
+          exec:
+            command:
+            - test
+            - -d
+            - /app/logs
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      volumes:
+      - name: config-volume
+        configMap:
+          name: trading-bot-config
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: trading-bot-data-pvc
+      - name: models-volume
+        persistentVolumeClaim:
+          claimName: trading-bot-models-pvc
+      - name: logs-volume
+        persistentVolumeClaim:
+          claimName: trading-bot-logs-pvc
+      - name: results-volume
+        persistentVolumeClaim:
+          claimName: trading-bot-results-pvc
+      imagePullSecrets:
+      - name: regcred
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: trading-bot-data-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: trading-bot-models-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: trading-bot-logs-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: trading-bot-results-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trading-bot-config
+data:
+  bot_config.json: |
+    {
+      "trading": {
+        "symbols": ["BTCUSDT", "ETHUSDT"],
+        "timeframes": ["1h", "4h", "1d"],
+        "initial_capital": 10000,
+        "leverage": 1.0,
+        "transaction_fee": 0.001,
+        "frequency_seconds": 60,
+        "dry_run": true
+      },
+      "risk": {
+        "max_position_size": 0.2,
+        "max_drawdown": 0.1,
+        "stop_loss_pct": 0.05,
+        "take_profit_pct": 0.1
+      },
+      "strategy": {
+        "default": "hybrid",
+        "weights": {
+          "technical": 0.4,
+          "sentiment": 0.3,
+          "rl": 0.3
+        }
+      },
+      "sentiment": {
+        "update_interval_minutes": 60,
+        "sources": ["newsapi", "finnhub"]
+      },
+      "rl": {
+        "model_dir": "saved_models/rl_agents",
+        "use_market_regime": true,
+        "default_agent": "default_agent",
+        "model_type": "PPO"
+      }
+    } 

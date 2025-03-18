@@ -42,7 +42,7 @@ jobs:
             # Créer un nouveau cluster Kubernetes
             doctl kubernetes cluster create evil2root-trading \
               --region fra1 \
-              --size s-16vcpu-32gb \
+              --size s-2vcpu-4gb \
               --count 4 \
               --auto-upgrade=true \
               --ha=true

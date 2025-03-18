@@ -1,0 +1,35 @@
+{
+  "trading": {
+    "symbols": ["BTCUSDT", "ETHUSDT"],
+    "timeframes": ["1h", "4h", "1d"],
+    "initial_capital": 10000,
+    "leverage": 1.0,
+    "transaction_fee": 0.001,
+    "frequency_seconds": 60,
+    "dry_run": true
+  },
+  "risk": {
+    "max_position_size": 0.2,
+    "max_drawdown": 0.1,
+    "stop_loss_pct": 0.05,
+    "take_profit_pct": 0.1
+  },
+  "strategy": {
+    "default": "hybrid",
+    "weights": {
+      "technical": 0.4,
+      "sentiment": 0.3,
+      "rl": 0.3
+    }
+  },
+  "sentiment": {
+    "update_interval_minutes": 60,
+    "sources": ["newsapi", "finnhub"]
+  },
+  "rl": {
+    "model_dir": "saved_models/rl_agents",
+    "use_market_regime": true,
+    "default_agent": "default_agent",
+    "model_type": "PPO"
+  }
+} 

@@ -126,6 +126,70 @@ def dashboard():
                           cpu_chart=cpu_chart_json,
                           signals=signals)
 
+@main_blueprint.route('/bot_status')
+def get_bot_status():
+    """Get the current status of the trading bot."""
+    status = 'stopped'
+    error = None
+    
+    try:
+        if trading_bot:
+            status = trading_bot.get_status()
+        else:
+            error = "Trading bot not initialized"
+    except Exception as e:
+        error = str(e)
+        
+    return jsonify({
+        'success': not error,
+        'state': status,
+        'error': error
+    })
+
+@main_blueprint.route('/control_bot/<action>', methods=['POST'])
+def control_bot(action):
+    """
+    Control the trading bot.
+    
+    Args:
+        action: The action to take (start, pause, stop)
+        
+    Returns:
+        JSON response with the result of the action
+    """
+    error = None
+    message = ""
+    
+    if not trading_bot:
+        return jsonify({
+            'success': False,
+            'message': "Trading bot not initialized",
+            'state': 'stopped'
+        })
+    
+    try:
+        if action == 'start':
+            message = "Bot started successfully"
+            trading_bot.start()
+        elif action == 'pause':
+            message = "Bot paused successfully"
+            trading_bot.pause()
+        elif action == 'stop':
+            message = "Bot stopped successfully"
+            trading_bot.stop()
+        else:
+            error = f"Unknown action: {action}"
+    except Exception as e:
+        error = str(e)
+    
+    status = trading_bot.get_status()
+    
+    return jsonify({
+        'success': not error,
+        'message': error or message,
+        'state': status
+    })
+
 @main_blueprint.route('/advanced')
 def advanced_dashboard():
     """Advanced dashboard with interactive charts."""
@@ -161,14 +225,6 @@ def advanced_dashboard():
                            signals=signals,
                            portfolio_stats=portfolio_stats,
                            symbols=symbols)
-
-@main_blueprint.route('/bot_status')
-def bot_status():
-    status = {
-        'state': trading_bot.get_status() if trading_bot else 'stopped',
-        'signals': trading_bot.get_latest_signals() if trading_bot else []
-    }
-    return jsonify(status)
 
 @main_blueprint.route('/performance')
 def performance():
@@ -282,6 +338,7 @@ def performance():
 def settings():
     # Charger les variables d'environnement actuelles
     dotenv_path = os.path.join(os.getcwd(), '.env')
+    secrets_path = os.path.join(os.getcwd(), 'config/secrets.env')
     
     # Récupérer les paramètres actuels
     current_settings = {
@@ -296,6 +353,37 @@ def settings():
         'telegram_token': os.environ.get('TELEGRAM_TOKEN', ''),
         'telegram_chat_id': os.environ.get('TELEGRAM_CHAT_ID', '')
     }
+    
+    # Charger les clés API depuis le fichier secrets.env
+    api_keys = {}
+    if os.path.exists(secrets_path):
+        try:
+            with open(secrets_path, 'r') as file:
+                for line in file:
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+                    if '=' in line:
+                        key, value = line.split('=', 1)
+                        if key in ['BINANCE_API_KEY', 'BINANCE_API_SECRET', 'NEWSAPI_KEY', 'FINNHUB_KEY',
+                                 'TWITTER_CONSUMER_KEY', 'TWITTER_CONSUMER_SECRET', 
+                                 'TWITTER_ACCESS_TOKEN', 'TWITTER_ACCESS_TOKEN_SECRET']:
+                            api_keys[key] = value
+        except Exception as e:
+            logging.error(f"Erreur lors de la lecture du fichier secrets.env: {e}")
+            flash(f'Erreur lors de la lecture des clés API: {e}', 'danger')
+    
+    # Ajouter les clés API aux paramètres actuels
+    current_settings.update({
+        'binance_api_key': api_keys.get('BINANCE_API_KEY', ''),
+        'binance_api_secret': api_keys.get('BINANCE_API_SECRET', ''),
+        'newsapi_key': api_keys.get('NEWSAPI_KEY', ''),
+        'finnhub_key': api_keys.get('FINNHUB_KEY', ''),
+        'twitter_consumer_key': api_keys.get('TWITTER_CONSUMER_KEY', ''),
+        'twitter_consumer_secret': api_keys.get('TWITTER_CONSUMER_SECRET', ''),
+        'twitter_access_token': api_keys.get('TWITTER_ACCESS_TOKEN', ''),
+        'twitter_access_token_secret': api_keys.get('TWITTER_ACCESS_TOKEN_SECRET', '')
+    })
     
     if request.method == 'POST':
         try:
@@ -312,6 +400,44 @@ def settings():
                 'TELEGRAM_TOKEN': request.form.get('telegram_token', ''),
                 'TELEGRAM_CHAT_ID': request.form.get('telegram_chat_id', '')
             }
+            
+            # Récupérer les clés API du formulaire
+            api_settings = {
+                'BINANCE_API_KEY': request.form.get('binance_api_key', ''),
+                'BINANCE_API_SECRET': request.form.get('binance_api_secret', ''),
+                'NEWSAPI_KEY': request.form.get('newsapi_key', ''),
+                'FINNHUB_KEY': request.form.get('finnhub_key', ''),
+                'TWITTER_CONSUMER_KEY': request.form.get('twitter_consumer_key', ''),
+                'TWITTER_CONSUMER_SECRET': request.form.get('twitter_consumer_secret', ''),
+                'TWITTER_ACCESS_TOKEN': request.form.get('twitter_access_token', ''),
+                'TWITTER_ACCESS_TOKEN_SECRET': request.form.get('twitter_access_token_secret', '')
+            }
+            
+            # Vérifier le mot de passe pour confirmer les modifications des clés API
+            confirm_password = request.form.get('confirm_password', '')
+            api_settings_changed = any(
+                api_settings[key] != api_keys.get(key, '') 
+                for key in api_settings.keys()
+            )
+            
+            # Si des clés API ont été modifiées, vérifier le mot de passe
+            save_api_settings = False
+            if api_settings_changed:
+                if not confirm_password:
+                    flash('Mot de passe requis pour modifier les clés API', 'error')
+                    return render_template('settings.html', settings=current_settings, 
+                                          error_message="Veuillez entrer votre mot de passe pour confirmer les modifications des clés API")
+                
+                # Vérifier le mot de passe administrateur
+                from app import load_user
+                admin_user = load_user('1')
+                if not admin_user or not admin_user.verify_password(confirm_password):
+                    flash('Mot de passe incorrect. Les clés API n\'ont pas été modifiées.', 'error')
+                    # Restaurer les anciennes valeurs des clés API
+                    for key in api_settings.keys():
+                        api_settings[key] = api_keys.get(key, '')
+                else:
+                    save_api_settings = True
             
             # Mettre à jour l'environnement actuel pour la session en cours
             for key, value in updated_settings.items():
@@ -360,7 +486,69 @@ def settings():
                 with open(env_path, 'w') as file:
                     file.write('\n'.join(updated_lines) + '\n')
                 
-                flash('Paramètres mis à jour avec succès!', 'success')
+                # Mettre à jour le fichier secrets.env pour les clés API
+                updated_api_settings = False
+                secrets_updated_lines = []
+                updated_api_keys = set()
+                
+                # S'assurer que le répertoire config existe
+                os.makedirs(os.path.dirname(secrets_path), exist_ok=True)
+                
+                # Lire le fichier secrets.env existant s'il existe
+                if os.path.exists(secrets_path) and os.path.getsize(secrets_path) > 0:
+                    with open(secrets_path, 'r') as file:
+                        secrets_lines = file.readlines()
+                    
+                    for line in secrets_lines:
+                        line = line.strip()
+                        if not line or line.startswith('#'):
+                            secrets_updated_lines.append(line)
+                            continue
+                        
+                        if '=' in line:
+                            key = line.split('=')[0].strip()
+                            if key in api_settings:
+                                # Ne mettre à jour que si la clé n'est pas vide et si le mot de passe est validé
+                                if api_settings[key] and save_api_settings:
+                                    secrets_updated_lines.append(f"{key}={api_settings[key]}")
+                                    updated_api_settings = True
+                                else:
+                                    secrets_updated_lines.append(line)
+                                updated_api_keys.add(key)
+                            else:
+                                secrets_updated_lines.append(line)
+                else:
+                    # Créer l'en-tête du fichier secrets.env s'il n'existe pas
+                    secrets_updated_lines.append("# Fichier de secrets pour le bot de trading")
+                    secrets_updated_lines.append("# Remplacez les valeurs par vos véritables clés API")
+                    secrets_updated_lines.append("")
+                    secrets_updated_lines.append("# Clés API pour Binance")
+                    
+                # Ajouter les clés API manquantes dans le fichier
+                if save_api_settings:  # Ne mettre à jour que si le mot de passe est validé
+                    for key, value in api_settings.items():
+                        # N'ajouter que si la valeur n'est pas vide et la clé n'existe pas encore
+                        if value and key not in updated_api_keys:
+                            if key in ['BINANCE_API_KEY', 'BINANCE_API_SECRET'] and not any(l.startswith('# Clés API pour Binance') for l in secrets_updated_lines):
+                                secrets_updated_lines.append("# Clés API pour Binance")
+                            elif key in ['NEWSAPI_KEY', 'FINNHUB_KEY'] and not any(l.startswith('# Clés API pour l\'analyse de sentiment') for l in secrets_updated_lines):
+                                secrets_updated_lines.append("")
+                                secrets_updated_lines.append("# Clés API pour l'analyse de sentiment")
+                            elif key in ['TWITTER_CONSUMER_KEY', 'TWITTER_CONSUMER_SECRET', 'TWITTER_ACCESS_TOKEN', 'TWITTER_ACCESS_TOKEN_SECRET'] and not any(l.startswith('# Clés API pour Twitter') for l in secrets_updated_lines):
+                                secrets_updated_lines.append("")
+                                secrets_updated_lines.append("# Clés API pour Twitter (optionnelles)")
+                            
+                            secrets_updated_lines.append(f"{key}={value}")
+                            updated_api_settings = True
+                
+                # Écrire les mises à jour dans le fichier secrets.env seulement si des changements ont été faits
+                if updated_api_settings:
+                    with open(secrets_path, 'w') as file:
+                        file.write('\n'.join(secrets_updated_lines) + '\n')
+                    if save_api_settings:
+                        flash('Paramètres et clés API mis à jour avec succès!', 'success')
+                    else:
+                        flash('Paramètres mis à jour avec succès! (Clés API non modifiées)', 'success')
             except Exception as e:
                 logging.error(f"Erreur lors de la mise à jour des paramètres: {e}")
                 flash(f'Erreur lors de la mise à jour des paramètres: {e}', 'danger')
@@ -376,7 +564,15 @@ def settings():
                 'data_update_interval': updated_settings['DATA_UPDATE_INTERVAL'],
                 'scanning_interval': updated_settings['SCANNING_INTERVAL'],
                 'telegram_token': updated_settings['TELEGRAM_TOKEN'],
-                'telegram_chat_id': updated_settings['TELEGRAM_CHAT_ID']
+                'telegram_chat_id': updated_settings['TELEGRAM_CHAT_ID'],
+                'binance_api_key': api_settings['BINANCE_API_KEY'],
+                'binance_api_secret': api_settings['BINANCE_API_SECRET'],
+                'newsapi_key': api_settings['NEWSAPI_KEY'],
+                'finnhub_key': api_settings['FINNHUB_KEY'],
+                'twitter_consumer_key': api_settings['TWITTER_CONSUMER_KEY'],
+                'twitter_consumer_secret': api_settings['TWITTER_CONSUMER_SECRET'],
+                'twitter_access_token': api_settings['TWITTER_ACCESS_TOKEN'],
+                'twitter_access_token_secret': api_settings['TWITTER_ACCESS_TOKEN_SECRET']
             }
             
             # Mettre à jour les paramètres dans la base de données
@@ -414,31 +610,6 @@ def settings():
     
     return render_template('settings.html', settings=current_settings)
 
-@main_blueprint.route('/control_bot/<action>', methods=['POST'])
-def control_bot(action):
-    """Contrôle l'état du bot (démarrer, mettre en pause, arrêter)"""
-    if not trading_bot:
-        return jsonify({'success': False, 'message': 'Trading bot not initialized'}), 500
-    
-    try:
-        if action == 'start':
-            # Dans une implémentation réelle, nous démarrerions le bot dans un thread séparé
-            trading_bot.set_status('running')
-            message = 'Trading bot started successfully'
-        elif action == 'pause':
-            trading_bot.set_status('paused')
-            message = 'Trading bot paused successfully'
-        elif action == 'stop':
-            trading_bot.set_status('stopped')
-            message = 'Trading bot stopped successfully'
-        else:
-            return jsonify({'success': False, 'message': f'Invalid action: {action}'}), 400
-        
-        return jsonify({'success': True, 'message': message, 'state': trading_bot.get_status()})
-    except Exception as e:
-        return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
-
-# API endpoints for the advanced dashboard
 @main_blueprint.route('/api/performance/equity')
 def api_performance_equity():
     """API endpoint for equity chart data."""

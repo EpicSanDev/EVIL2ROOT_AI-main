@@ -28,6 +28,33 @@
     <!-- App Scripts -->
     <script src="{{ url_for('static', filename='js/scripts.js') }}" defer></script>
     
+    <style>
+        /* Styles pour les indicateurs de statut des clés API */
+        .status-indicator {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+        
+        .status-indicator.configured {
+            background-color: #10b981;
+            color: white;
+        }
+        
+        .status-indicator.not-configured {
+            background-color: #ef4444;
+            color: white;
+        }
+        
+        .status-indicator.optional {
+            background-color: #94a3b8;
+            color: white;
+        }
+    </style>
+    
     {% block extra_head %}{% endblock %}
 </head>
 

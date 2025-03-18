@@ -386,94 +386,219 @@ def get_signals():
 
 @api_blueprint.route('/performance', methods=['GET'])
 def get_performance():
-    """Get performance metrics."""
+    """Get trading bot performance metrics."""
     with monitoring_service.time_api_request('/api/performance'):
         try:
             trading_bot = current_app.config.get('trading_bot')
             if not trading_bot:
                 return jsonify({'error': 'Trading bot not initialized'}), 500
                 
-            # Get time range from query parameters
-            days = request.args.get('days', 30, type=int)
+            # Get performance metrics
+            metrics = trading_bot.position_manager.get_performance_metrics()
             
-            # Fetch performance metrics from the database
-            # This is a placeholder; implement the actual database query based on your schema
-            conn = None
-            try:
-                from app.trading import get_db_connection
-                conn = get_db_connection()
-                with conn.cursor() as cursor:
-                    cursor.execute(
-                        """
-                        SELECT date, balance, equity, daily_pnl, total_trades, 
-                               winning_trades, losing_trades, win_rate, 
-                               average_win, average_loss, profit_factor
-                        FROM performance_metrics
-                        WHERE date >= %s
-                        ORDER BY date ASC
-                        """,
-                        (datetime.now() - timedelta(days=days),)
-                    )
-                    metrics = cursor.fetchall()
-            finally:
-                if conn:
-                    conn.close()
-                    
-            # Process metrics
-            dates = []
-            balance = []
-            equity = []
-            daily_pnl = []
-            win_rate = []
+            # Update monitoring metrics
+            monitoring_service.update_performance_metrics(metrics)
             
-            for metric in metrics:
-                dates.append(metric[0].isoformat())
-                balance.append(float(metric[1]))
-                equity.append(float(metric[2]))
-                daily_pnl.append(float(metric[3]))
-                win_rate.append(float(metric[7]) * 100)  # Convert to percentage
-                
-            # Calculate cumulative metrics
-            if metrics:
-                last_metric = metrics[-1]
-                cumulative = {
-                    'current_balance': float(last_metric[1]),
-                    'current_equity': float(last_metric[2]),
-                    'total_trades': int(last_metric[4]),
-                    'winning_trades': int(last_metric[5]),
-                    'losing_trades': int(last_metric[6]),
-                    'win_rate': float(last_metric[7]) * 100,  # Convert to percentage
-                    'average_win': float(last_metric[8]),
-                    'average_loss': float(last_metric[9]),
-                    'profit_factor': float(last_metric[10])
-                }
-            else:
-                cumulative = {
-                    'current_balance': trading_bot.position_manager.current_balance,
-                    'current_equity': trading_bot.position_manager.current_balance,
-                    'total_trades': 0,
-                    'winning_trades': 0,
-                    'losing_trades': 0,
-                    'win_rate': 0,
-                    'average_win': 0,
-                    'average_loss': 0,
-                    'profit_factor': 0
-                }
-                
             return jsonify({
-                'time_series': {
-                    'dates': dates,
-                    'balance': balance,
-                    'equity': equity,
-                    'daily_pnl': daily_pnl,
-                    'win_rate': win_rate
-                },
-                'cumulative': cumulative,
+                'win_rate': metrics.get('win_rate', 0),
+                'profit_factor': metrics.get('profit_factor', 0),
+                'average_win': metrics.get('average_win', 0),
+                'average_loss': metrics.get('average_loss', 0),
+                'max_drawdown': metrics.get('max_drawdown', 0),
+                'sharpe_ratio': metrics.get('sharpe_ratio', 0),
+                'sortino_ratio': metrics.get('sortino_ratio', 0),
+                'total_trades': metrics.get('total_trades', 0),
+                'profitable_trades': metrics.get('profitable_trades', 0),
+                'losing_trades': metrics.get('losing_trades', 0),
+                'total_pnl': metrics.get('total_pnl', 0),
+                'daily_returns': metrics.get('daily_returns', {}),
+                'equity_curve': metrics.get('equity_curve', {}),
+                'drawdown_curve': metrics.get('drawdown_curve', {}),
+                'monthly_performance': metrics.get('monthly_performance', {}),
+                'symbol_performance': metrics.get('symbol_performance', {}),
                 'timestamp': datetime.now().isoformat()
             })
         except Exception as e:
-            logger.error(f"Error getting performance metrics: {e}")
+            logger.error(f"Error in performance API: {e}")
             return jsonify({'error': str(e)}), 500
+
+@api_blueprint.route('/performance/equity', methods=['GET'])
+def get_equity_performance():
+    """
+    Get detailed equity performance data for the dashboard including 
+    historical equity, key metrics, and sentiment data.
+    """
+    with monitoring_service.time_api_request('/api/performance/equity'):
+        try:
+            trading_bot = current_app.config.get('trading_bot')
+            if not trading_bot:
+                return jsonify({'error': 'Trading bot not initialized', 'success': False}), 500
+            
+            # Get portfolio stats
+            portfolio_stats = trading_bot.position_manager.get_portfolio_stats()
+            
+            # Calculate performance metrics
+            metrics = trading_bot.position_manager.get_performance_metrics()
+            
+            # Generate equity history (last 90 days)
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=90)
+            
+            # Get equity history from position manager
+            equity_history = trading_bot.position_manager.get_equity_history(start_date, end_date)
+            
+            # Format for chart display
+            formatted_equity = [
+                {
+                    'date': date.isoformat(),
+                    'value': value
+                }
+                for date, value in equity_history.items()
+            ]
+            
+            # Calculate daily change and profit
+            current_balance = portfolio_stats.get('total_equity', 0)
+            yesterday_balance = current_balance
+            
+            # Try to get yesterday's balance from equity history
+            if len(formatted_equity) >= 2:
+                yesterday_balance = formatted_equity[-2]['value']
+            
+            daily_change = ((current_balance / yesterday_balance) - 1) * 100 if yesterday_balance > 0 else 0
+            daily_profit = current_balance - yesterday_balance
+            daily_profit_percent = (daily_profit / yesterday_balance * 100) if yesterday_balance > 0 else 0
+            
+            # Get active trades count
+            active_trades = len(trading_bot.position_manager.positions)
+            
+            # Get win rate
+            win_rate = metrics.get('win_rate', 0) * 100
+            
+            # Calculate performance score (0-10)
+            # Based on various metrics: win rate, profit factor, drawdown, etc.
+            win_rate_factor = metrics.get('win_rate', 0) * 5  # 0-5 points
+            profit_factor = min(metrics.get('profit_factor', 1), 3) / 3 * 3  # 0-3 points
+            drawdown_factor = max(0, 1 - abs(metrics.get('max_drawdown', 0)) / 0.2) * 2  # 0-2 points
+            performance_score = win_rate_factor + profit_factor + drawdown_factor
+            
+            # Get best performing asset
+            symbol_performance = metrics.get('symbol_performance', {})
+            best_performing_asset = "None"
+            best_pnl = -float('inf')
+            
+            for symbol, stats in symbol_performance.items():
+                if stats.get('total_pnl', 0) > best_pnl:
+                    best_pnl = stats.get('total_pnl', 0)
+                    best_performing_asset = symbol
+            
+            # Generate sentiment data for the dashboard
+            # This would come from a sentiment analysis service in a real implementation
+            # For demonstration, we'll generate synthetic data
+            sentiment_data = []
+            
+            for i in range(30):
+                date = (end_date - timedelta(days=30-i)).isoformat()
+                # Generate synthetic sentiment between -1 and 1
+                sentiment = (((i % 7) - 3) / 3) + ((i % 5) - 2) / 10
+                sentiment = max(min(sentiment, 1), -1)  # Clamp to [-1, 1]
+                
+                sentiment_data.append({
+                    'date': date,
+                    'sentiment_score': sentiment,
+                    'volume': 1000 + (i * 100) + ((i % 5) * 200)  # Synthetic volume
+                })
+            
+            return jsonify({
+                'success': True,
+                'current_balance': current_balance,
+                'daily_change': daily_change,
+                'daily_profit': daily_profit,
+                'daily_profit_percent': daily_profit_percent,
+                'active_trades': active_trades,
+                'win_rate': win_rate,
+                'performance_score': performance_score,
+                'best_performing_asset': best_performing_asset,
+                'equity_history': formatted_equity,
+                'sentiment_data': sentiment_data,
+                'timestamp': datetime.now().isoformat()
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in equity performance API: {e}")
+            return jsonify({
+                'error': str(e),
+                'success': False
+            }), 500
+
+@api_blueprint.route('/performance/symbol_performance', methods=['GET'])
+def get_symbol_performance():
+    """Get performance data by trading symbol."""
+    with monitoring_service.time_api_request('/api/performance/symbol_performance'):
+        try:
+            trading_bot = current_app.config.get('trading_bot')
+            if not trading_bot:
+                return jsonify({'error': 'Trading bot not initialized', 'success': False}), 500
+            
+            # Get performance metrics
+            metrics = trading_bot.position_manager.get_performance_metrics()
+            
+            # Extract symbol performance data
+            symbol_performance = metrics.get('symbol_performance', {})
+            
+            # Process to include more visualization-friendly data
+            for symbol, stats in symbol_performance.items():
+                # Calculate win rate percentage from raw value
+                stats['win_rate'] = stats.get('win_rate', 0) * 100
+            
+            return jsonify({
+                'success': True,
+                'symbols': symbol_performance,
+                'timestamp': datetime.now().isoformat()
+            })
+        except Exception as e:
+            logger.error(f"Error in symbol performance API: {e}")
+            return jsonify({'error': str(e), 'success': False}), 500
+
+@api_blueprint.route('/performance/trade_distribution', methods=['GET'])
+def get_trade_distribution():
+    """Get trade distribution statistics for pie charts."""
+    with monitoring_service.time_api_request('/api/performance/trade_distribution'):
+        try:
+            trading_bot = current_app.config.get('trading_bot')
+            if not trading_bot:
+                return jsonify({'error': 'Trading bot not initialized', 'success': False}), 500
+            
+            # Get performance metrics
+            metrics = trading_bot.position_manager.get_performance_metrics()
+            
+            # Extract relevant metrics
+            winning_trades = metrics.get('profitable_trades', 0)
+            losing_trades = metrics.get('losing_trades', 0)
+            
+            # Calculate breakeven trades (approx. within ±0.5% PnL)
+            breakeven_trades = 0
+            for pos in trading_bot.position_manager.closed_positions:
+                if abs(pos.realized_pnl_percentage) < 0.5:  # ±0.5% threshold for breakeven
+                    breakeven_trades += 1
+            
+            # Account for breakeven trades in winning/losing counts
+            winning_trades -= breakeven_trades / 2
+            losing_trades -= breakeven_trades / 2
+            
+            # Calculate total trades
+            total_trades = winning_trades + losing_trades + breakeven_trades
+            
+            return jsonify({
+                'success': True,
+                'winning_trades': winning_trades,
+                'losing_trades': losing_trades,
+                'breakeven_trades': breakeven_trades,
+                'total_trades': total_trades,
+                'timestamp': datetime.now().isoformat()
+            })
+        except Exception as e:
+            logger.error(f"Error in trade distribution API: {e}")
+            return jsonify({'error': str(e), 'success': False}), 500
 
 @api_blueprint.route('/bot/control', methods=['POST'])
 def control_bot():

@@ -1,5 +1,6 @@
 from tensorflow.keras.models import Sequential, load_model, Model
 from tensorflow.keras.layers import Dense, LSTM, Dropout, BatchNormalization, Input, Concatenate, Bidirectional, GRU, Conv1D, MaxPooling1D, Flatten
+from tensorflow.keras.layers import LayerNormalization, MultiHeadAttention, GlobalAveragePooling1D, TimeDistributed, Add
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
 from tensorflow.keras.regularizers import l1_l2
@@ -19,6 +20,24 @@ import tensorflow as tf
 import traceback
 import inspect
 import gc
+import psutil
+import time
+
+# Configuration optimisée pour TensorFlow
+physical_devices = tf.config.list_physical_devices('GPU')
+if physical_devices:
+    try:
+        # Autoriser la croissance mémoire GPU
+        for device in physical_devices:
+            tf.config.experimental.set_memory_growth(device, True)
+        logging.info(f"GPU disponible et configurée: {physical_devices}")
+    except Exception as e:
+        logging.warning(f"Impossible de configurer la croissance mémoire GPU: {e}")
+else:
+    logging.info("Aucun GPU détecté, utilisation du CPU")
+    
+# Configuration de la mémoire pour réduire les fuites mémoires
+tf.config.optimizer.set_jit(True)  # Activer XLA pour améliorer les performances
 
 class PricePredictionModel:
     def __init__(self, sequence_length=60, future_periods=1, model_dir='models'):
@@ -36,14 +55,12 @@ class PricePredictionModel:
         self.sequence_length = sequence_length
         self.future_periods = future_periods
         self.model_dir = model_dir
+        self.version = '2.1.0'  # Version du modèle pour le suivi des améliorations
         
         # Create model directory if it doesn't exist
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
             
-        # Configure TensorFlow for better performance
-        tf.config.optimizer.set_jit(True)  # Enable XLA acceleration
-        
         # Set up logging
         logging.basicConfig(
             level=logging.INFO,
@@ -54,6 +71,9 @@ class PricePredictionModel:
             ]
         )
         self.logger = logging.getLogger(__name__)
+        
+        # Moniteur de performances
+        self.performance_metrics = {}
 
     def _prepare_features(self, data):
         """
@@ -216,123 +236,302 @@ class PricePredictionModel:
 
     def build_model(self, params, input_shape, output_shape=1):
         """
-        Build a sophisticated deep learning model architecture.
+        Build the neural network model for price prediction.
         
         Args:
-            params: Dict of hyperparameters
-            input_shape: Shape of input data
-            output_shape: Number of output values
+            params: Dictionary of hyperparameters
+            input_shape: Shape of input features
+            output_shape: Number of outputs (default: 1 for single step prediction)
             
         Returns:
             Compiled Keras model
         """
+        # Extraction des hyperparamètres
         model_type = params.get('model_type', 'hybrid')
+        lstm_units = params.get('lstm_units', 64)
+        dropout_rate = params.get('dropout_rate', 0.2)
+        learning_rate = params.get('learning_rate', 0.001)
+        l1_reg = params.get('l1_reg', 0.0)
+        l2_reg = params.get('l2_reg', 0.0)
+        use_batch_norm = params.get('use_batch_norm', True)
+        use_bidirectional = params.get('use_bidirectional', True)
+        use_attention = params.get('use_attention', True)
+        num_attention_heads = params.get('num_attention_heads', 2)
+        key_dim = params.get('key_dim', 32)
         
-        if model_type == 'lstm':
-            model = Sequential()
-            model.add(LSTM(params['lstm_units'], return_sequences=True, 
-                          input_shape=input_shape,
-                          kernel_regularizer=l1_l2(params.get('l1', 0.0), params.get('l2', 0.0))))
-            model.add(BatchNormalization())
-            model.add(Dropout(params['dropout_rate']))
-            
-            model.add(LSTM(params['lstm_units'] // 2, return_sequences=True,
-                          kernel_regularizer=l1_l2(params.get('l1', 0.0), params.get('l2', 0.0))))
-            model.add(BatchNormalization())
-            model.add(Dropout(params['dropout_rate']))
-            
-            model.add(LSTM(params['lstm_units'] // 4, return_sequences=False,
-                          kernel_regularizer=l1_l2(params.get('l1', 0.0), params.get('l2', 0.0))))
-            model.add(BatchNormalization())
-            model.add(Dropout(params['dropout_rate']))
-            
-            model.add(Dense(params.get('dense_units', 32), activation='relu',
-                           kernel_regularizer=l1_l2(params.get('l1', 0.0), params.get('l2', 0.0))))
-            model.add(Dropout(params['dropout_rate'] / 2))
-            model.add(Dense(output_shape))
-            
-        elif model_type == 'bidirectional':
-            model = Sequential()
-            model.add(Bidirectional(LSTM(params['lstm_units'], return_sequences=True), 
-                                    input_shape=input_shape))
-            model.add(BatchNormalization())
-            model.add(Dropout(params['dropout_rate']))
-            
-            model.add(Bidirectional(LSTM(params['lstm_units'] // 2, return_sequences=False)))
-            model.add(BatchNormalization())
-            model.add(Dropout(params['dropout_rate']))
-            
-            model.add(Dense(params.get('dense_units', 32), activation='relu'))
-            model.add(Dropout(params['dropout_rate'] / 2))
-            model.add(Dense(output_shape))
-            
-        elif model_type == 'gru':
-            model = Sequential()
-            model.add(GRU(params['lstm_units'], return_sequences=True, 
-                         input_shape=input_shape))
-            model.add(BatchNormalization())
-            model.add(Dropout(params['dropout_rate']))
-            
-            model.add(GRU(params['lstm_units'] // 2, return_sequences=False))
-            model.add(BatchNormalization())
-            model.add(Dropout(params['dropout_rate']))
-            
-            model.add(Dense(params.get('dense_units', 32), activation='relu'))
-            model.add(Dropout(params['dropout_rate'] / 2))
-            model.add(Dense(output_shape))
-            
-        elif model_type == 'conv_lstm':
-            model = Sequential()
-            model.add(Conv1D(filters=params.get('conv_filters', 64),
-                             kernel_size=params.get('kernel_size', 3),
-                             activation='relu',
-                             input_shape=input_shape))
-            model.add(MaxPooling1D(pool_size=2))
-            model.add(BatchNormalization())
-            
-            model.add(LSTM(params['lstm_units'], return_sequences=True))
-            model.add(Dropout(params['dropout_rate']))
-            
-            model.add(LSTM(params['lstm_units'] // 2, return_sequences=False))
-            model.add(Dropout(params['dropout_rate']))
-            
-            model.add(Dense(params.get('dense_units', 32), activation='relu'))
-            model.add(Dropout(params['dropout_rate'] / 2))
-            model.add(Dense(output_shape))
-            
+        # Surveillance de la mémoire avant construction du modèle
+        self._log_memory_usage("Avant construction du modèle")
+        
+        # Sélecteur de modèle
+        if model_type == 'simple_lstm':
+            model = self._build_simple_lstm_model(input_shape, lstm_units, dropout_rate, 
+                                                 l1_reg, l2_reg, use_batch_norm, output_shape)
+        elif model_type == 'bidirectional_lstm':
+            model = self._build_bidirectional_lstm_model(input_shape, lstm_units, dropout_rate, 
+                                                         l1_reg, l2_reg, use_batch_norm, output_shape)
+        elif model_type == 'cnn_lstm':
+            model = self._build_cnn_lstm_model(input_shape, lstm_units, dropout_rate, 
+                                              l1_reg, l2_reg, use_batch_norm, output_shape)
+        elif model_type == 'attention_lstm':
+            model = self._build_attention_lstm_model(input_shape, lstm_units, dropout_rate,
+                                                   l1_reg, l2_reg, use_batch_norm, 
+                                                   num_attention_heads, key_dim, output_shape)
         elif model_type == 'hybrid':
-            # Hybrid model with parallel paths
-            input_layer = Input(shape=input_shape)
-            
-            # CNN path
-            conv = Conv1D(filters=params.get('conv_filters', 64),
-                          kernel_size=params.get('kernel_size', 3),
-                          activation='relu')(input_layer)
-            conv = MaxPooling1D(pool_size=2)(conv)
-            conv = BatchNormalization()(conv)
-            conv = Flatten()(conv)
-            
-            # LSTM path
-            lstm = LSTM(params['lstm_units'], return_sequences=True)(input_layer)
-            lstm = Dropout(params['dropout_rate'])(lstm)
-            lstm = LSTM(params['lstm_units'] // 2, return_sequences=False)(lstm)
-            lstm = Dropout(params['dropout_rate'])(lstm)
-            
-            # Combine paths
-            combined = Concatenate()([conv, lstm])
-            combined = Dense(params.get('dense_units', 64), activation='relu')(combined)
-            combined = Dropout(params['dropout_rate'] / 2)(combined)
-            combined = Dense(params.get('dense_units', 32), activation='relu')(combined)
-            output = Dense(output_shape)(combined)
-            
-            model = Model(inputs=input_layer, outputs=output)
+            model = self._build_hybrid_model(input_shape, lstm_units, dropout_rate,
+                                           l1_reg, l2_reg, use_batch_norm, 
+                                           use_bidirectional, use_attention,
+                                           num_attention_heads, key_dim, output_shape)
+        else:
+            self.logger.warning(f"Type de modèle inconnu '{model_type}', utilisation du modèle hybride par défaut")
+            model = self._build_hybrid_model(input_shape, lstm_units, dropout_rate,
+                                           l1_reg, l2_reg, use_batch_norm, 
+                                           use_bidirectional, use_attention,
+                                           num_attention_heads, key_dim, output_shape)
         
-        # Compile model with specified optimizer
-        optimizer = Adam(learning_rate=params.get('learning_rate', 0.001))
-        model.compile(optimizer=optimizer, loss=params.get('loss', 'mean_squared_error'))
+        # Compilation du modèle
+        optimizer = Adam(learning_rate=learning_rate)
+        model.compile(
+            optimizer=optimizer,
+            loss='mean_squared_error',
+            metrics=['mae', 'mape']
+        )
+        
+        # Surveillance de la mémoire après construction du modèle
+        self._log_memory_usage("Après construction du modèle")
         
         return model
-
+    
+    def _build_simple_lstm_model(self, input_shape, lstm_units, dropout_rate, 
+                              l1_reg, l2_reg, use_batch_norm, output_shape):
+        """Simple LSTM model"""
+        model = Sequential()
+        model.add(LSTM(
+            lstm_units, 
+            input_shape=input_shape,
+            return_sequences=False,
+            kernel_regularizer=l1_l2(l1=l1_reg, l2=l2_reg)
+        ))
+        if use_batch_norm:
+            model.add(BatchNormalization())
+        model.add(Dropout(dropout_rate))
+        model.add(Dense(output_shape))
+        return model
+    
+    def _build_bidirectional_lstm_model(self, input_shape, lstm_units, dropout_rate, 
+                                     l1_reg, l2_reg, use_batch_norm, output_shape):
+        """Bidirectional LSTM model for better capturing of trends"""
+        model = Sequential()
+        model.add(Bidirectional(
+            LSTM(
+                lstm_units,
+                return_sequences=True,
+                kernel_regularizer=l1_l2(l1=l1_reg, l2=l2_reg)
+            ),
+            input_shape=input_shape
+        ))
+        if use_batch_norm:
+            model.add(BatchNormalization())
+        model.add(Dropout(dropout_rate))
+        model.add(Bidirectional(
+            LSTM(
+                lstm_units // 2,
+                return_sequences=False,
+                kernel_regularizer=l1_l2(l1=l1_reg, l2=l2_reg)
+            )
+        ))
+        if use_batch_norm:
+            model.add(BatchNormalization())
+        model.add(Dropout(dropout_rate))
+        model.add(Dense(output_shape))
+        return model
+    
+    def _build_cnn_lstm_model(self, input_shape, lstm_units, dropout_rate, 
+                           l1_reg, l2_reg, use_batch_norm, output_shape):
+        """CNN-LSTM model to capture both local and temporal patterns"""
+        model = Sequential()
+        model.add(Conv1D(
+            filters=32,
+            kernel_size=3,
+            activation='relu',
+            padding='same',
+            input_shape=input_shape
+        ))
+        model.add(MaxPooling1D(pool_size=2))
+        if use_batch_norm:
+            model.add(BatchNormalization())
+        model.add(Conv1D(
+            filters=64,
+            kernel_size=3,
+            activation='relu',
+            padding='same'
+        ))
+        model.add(MaxPooling1D(pool_size=2))
+        if use_batch_norm:
+            model.add(BatchNormalization())
+        model.add(LSTM(
+            lstm_units,
+            return_sequences=False,
+            kernel_regularizer=l1_l2(l1=l1_reg, l2=l2_reg)
+        ))
+        if use_batch_norm:
+            model.add(BatchNormalization())
+        model.add(Dropout(dropout_rate))
+        model.add(Dense(output_shape))
+        return model
+    
+    def _build_attention_lstm_model(self, input_shape, lstm_units, dropout_rate,
+                                  l1_reg, l2_reg, use_batch_norm, 
+                                  num_attention_heads, key_dim, output_shape):
+        """LSTM model with multi-head attention mechanism"""
+        inputs = Input(shape=input_shape)
+        
+        # LSTM layer with Layer Normalization
+        x = LSTM(
+            lstm_units,
+            return_sequences=True,
+            kernel_regularizer=l1_l2(l1=l1_reg, l2=l2_reg)
+        )(inputs)
+        
+        if use_batch_norm:
+            x = LayerNormalization()(x)
+        
+        # Multi-head attention
+        attention_output = MultiHeadAttention(
+            num_heads=num_attention_heads,
+            key_dim=key_dim
+        )(x, x)
+        
+        # Residual connection
+        x = Add()([x, attention_output])
+        
+        # Layer Normalization
+        x = LayerNormalization()(x)
+        
+        # Second LSTM layer
+        x = LSTM(
+            lstm_units // 2,
+            return_sequences=False,
+            kernel_regularizer=l1_l2(l1=l1_reg, l2=l2_reg)
+        )(x)
+        
+        if use_batch_norm:
+            x = BatchNormalization()(x)
+        
+        x = Dropout(dropout_rate)(x)
+        
+        # Output layer
+        outputs = Dense(output_shape)(x)
+        
+        return Model(inputs=inputs, outputs=outputs)
+    
+    def _build_hybrid_model(self, input_shape, lstm_units, dropout_rate,
+                          l1_reg, l2_reg, use_batch_norm, 
+                          use_bidirectional, use_attention,
+                          num_attention_heads, key_dim, output_shape):
+        """
+        Hybrid model combining CNN for feature extraction, 
+        LSTM (optionally bidirectional) for temporal dynamics,
+        and attention mechanism for focusing on important timesteps
+        """
+        inputs = Input(shape=input_shape)
+        
+        # CNN feature extraction
+        x = Conv1D(filters=32, kernel_size=3, activation='relu', padding='same')(inputs)
+        x = MaxPooling1D(pool_size=2)(x)
+        
+        if use_batch_norm:
+            x = BatchNormalization()(x)
+        
+        # Deeper CNN
+        x = Conv1D(filters=64, kernel_size=3, activation='relu', padding='same')(x)
+        x = MaxPooling1D(pool_size=2)(x)
+        
+        if use_batch_norm:
+            x = BatchNormalization()(x)
+        
+        # LSTM layer (bidirectional if specified)
+        if use_bidirectional:
+            x = Bidirectional(LSTM(
+                lstm_units,
+                return_sequences=True,
+                kernel_regularizer=l1_l2(l1=l1_reg, l2=l2_reg)
+            ))(x)
+        else:
+            x = LSTM(
+                lstm_units,
+                return_sequences=True,
+                kernel_regularizer=l1_l2(l1=l1_reg, l2=l2_reg)
+            )(x)
+        
+        if use_batch_norm:
+            x = LayerNormalization()(x)
+        
+        # Attention mechanism if specified
+        if use_attention:
+            attention_output = MultiHeadAttention(
+                num_heads=num_attention_heads,
+                key_dim=key_dim
+            )(x, x)
+            
+            # Residual connection
+            x = Add()([x, attention_output])
+            
+            # Layer Normalization
+            x = LayerNormalization()(x)
+        
+        # Second LSTM layer
+        if use_bidirectional:
+            x = Bidirectional(LSTM(
+                lstm_units // 2,
+                return_sequences=False,
+                kernel_regularizer=l1_l2(l1=l1_reg, l2=l2_reg)
+            ))(x)
+        else:
+            x = LSTM(
+                lstm_units // 2,
+                return_sequences=False,
+                kernel_regularizer=l1_l2(l1=l1_reg, l2=l2_reg)
+            )(x)
+        
+        if use_batch_norm:
+            x = BatchNormalization()(x)
+        
+        x = Dropout(dropout_rate)(x)
+        
+        # Dense layers
+        x = Dense(
+            32,
+            activation='relu',
+            kernel_regularizer=l1_l2(l1=l1_reg, l2=l2_reg)
+        )(x)
+        
+        if use_batch_norm:
+            x = BatchNormalization()(x)
+        
+        x = Dropout(dropout_rate / 2)(x)
+        
+        # Output layer
+        outputs = Dense(output_shape)(x)
+        
+        return Model(inputs=inputs, outputs=outputs)
+    
+    def _log_memory_usage(self, step_name):
+        """Log memory usage at various steps for debugging and optimization"""
+        # Récupérer l'utilisation mémoire du processus
+        process = psutil.Process(os.getpid())
+        memory_info = process.memory_info()
+        
+        # Convertir en MB
+        memory_mb = memory_info.rss / (1024 * 1024)
+        
+        # Nettoyer la mémoire inutilisée si possible
+        gc.collect()
+        
+        self.logger.info(f"Utilisation mémoire à '{step_name}': {memory_mb:.2f} MB")
+        
+        # Stocker pour analyse ultérieure
+        self.performance_metrics[f"mémoire_{step_name}"] = memory_mb
+    
     def _optimize_hyperparameters(self, X_train, y_train, symbol, max_trials=25, timeout=3600):
         """
         Perform real hyperparameter optimization using Bayesian optimization.
@@ -434,251 +633,153 @@ class PricePredictionModel:
 
     def train(self, data=None, symbol=None, optimize=True, epochs=100, validation_split=0.2, **kwargs):
         """
-        Train the model with advanced features and techniques.
+        Train or optimize the price prediction model.
         
         Args:
             data: DataFrame with OHLCV data
             symbol: Trading symbol
-            optimize: Whether to optimize hyperparameters
-            epochs: Number of training epochs if not optimizing
-            validation_split: Validation data fraction
-            **kwargs: Additional arguments that might be passed
+            optimize: Whether to perform hyperparameter optimization
+            epochs: Number of training epochs
+            validation_split: Fraction of data to use for validation
             
         Returns:
-            Training history object
+            History object from model training
         """
-        # Handle various parameter combinations, including keyword arguments
-        # Extensive parameter handling to avoid the missing symbol issue
-        if data is None and 'data' in kwargs:
-            data = kwargs.get('data')
-        if data is None and 'market_data' in kwargs:
-            data = kwargs.get('market_data')
-            
-        if symbol is None and 'symbol' in kwargs:
-            symbol = kwargs.get('symbol')
-            
-        # More parameters that might be in kwargs
-        optimize = kwargs.get('optimize', optimize)
-        epochs = kwargs.get('epochs', epochs)
-        validation_split = kwargs.get('validation_split', validation_split)
+        if data is None or symbol is None:
+            self.logger.error("Les données et le symbole sont requis pour l'entraînement")
+            return None
         
-        # Ajout d'un log détaillé
-        caller = inspect.getouterframes(inspect.currentframe())[1]
-        caller_info = f"{caller.filename}:{caller.lineno} in {caller.function}"
+        self.logger.info(f"Début de l'entraînement pour {symbol}")
+        training_start_time = time.time()
+        self._log_memory_usage("Début d'entraînement")
+            
+        # Prepare data
+        prepared_data = self._prepare_features(data)
+        self.logger.info(f"Nombre de caractéristiques: {prepared_data.shape[1]}")
         
-        # Print extra debugging information
-        self.logger.info(f"EXTRA DEBUG - train parameters: data={type(data)}, symbol={symbol}, optimize={optimize}")
-        self.logger.info(f"EXTRA DEBUG - caller info: {caller_info}")
-        self.logger.info(f"EXTRA DEBUG - arguments: {inspect.signature(self.train)}")
+        # Split into features and target
+        X = prepared_data.drop('Close', axis=1)
+        y = prepared_data['Close']
         
-        # If symbol is None, raise a detailed error to help debugging
-        if symbol is None:
-            error_msg = f"Symbol parameter is required but was None. Called from {caller_info}."
-            self.logger.error(error_msg)
-            raise ValueError(error_msg)
-            
-        self.logger.info(f"DÉBUT DE TRAIN pour {symbol} - appelé depuis: {caller_info}")
+        # Scale data
+        X_scaled, _ = self._scale_data(X, symbol, train_mode=True)
+        y_scaled, _ = self._scale_data(pd.DataFrame(y), symbol + '_target', train_mode=True)
         
-        try:
-            self.logger.info(f"Training model for symbol: {symbol}")
+        # Create sequences
+        X_seq, y_seq = self._create_sequences(
+            X_scaled, y_scaled.values, self.sequence_length, self.future_periods
+        )
+        
+        # Vérification des dimensions
+        self.logger.info(f"Dimensions des séquences: X={X_seq.shape}, y={y_seq.shape}")
+        self._log_memory_usage("Après préparation des données")
+        
+        # Stratified time series split for validation
+        n_splits = 5
+        tscv = TimeSeriesSplit(n_splits=n_splits)
+        
+        for i, (train_idx, val_idx) in enumerate(tscv.split(X_seq)):
+            if i == n_splits - 1:  # Use only the last split
+                X_train, X_val = X_seq[train_idx], X_seq[val_idx]
+                y_train, y_val = y_seq[train_idx], y_seq[val_idx]
+        
+        self.logger.info(f"Taille de l'ensemble d'entraînement: {X_train.shape[0]}")
+        self.logger.info(f"Taille de l'ensemble de validation: {X_val.shape[0]}")
+        
+        # Hyperparameter optimization if required
+        if optimize:
+            self.logger.info("Début de l'optimisation des hyperparamètres...")
+            self._log_memory_usage("Avant optimisation")
             
-            # Limiter la taille des données pour réduire la consommation de mémoire
-            if len(data) > 5000:
-                self.logger.info(f"Réduction de la taille des données: {len(data)} → 5000 points")
-                data = data.iloc[-5000:]
-            
-            # Create features
-            feature_data = self._prepare_features(data)
-            self.logger.info(f"Created {len(feature_data.columns)} features for {symbol}")
-            
-            # Libérer la mémoire
-            del data
-            gc.collect()
-            
-            # Scale data
-            X_scaled, y_scaled = self._scale_data(feature_data, symbol, train_mode=True)
-            
-            # Libérer la mémoire
-            del feature_data
-            gc.collect()
-            
-            # Lire la séquence depuis les variables d'environnement
-            seq_length = int(os.environ.get('SEQUENCE_LENGTH', self.sequence_length))
-            
-            # Create sequences
-            X_seq, y_seq = self._create_sequences(X_scaled, y_scaled, seq_length, self.future_periods)
-            self.logger.info(f"Created {len(X_seq)} sequences for {symbol}")
-            
-            # Libérer la mémoire
-            del X_scaled, y_scaled
-            gc.collect()
-            
-            # Split data into training and validation sets
-            split_idx = int(len(X_seq) * (1 - validation_split))
-            X_train, X_val = X_seq[:split_idx], X_seq[split_idx:]
-            y_train, y_val = y_seq[:split_idx], y_seq[split_idx:]
-            
-            # Libérer la mémoire
-            del X_seq, y_seq
-            gc.collect()
-            
-            # Get hyperparameters
-            if optimize:
-                # Limiter le nombre d'essais depuis les variables d'environnement
-                max_trials = int(os.environ.get('MAX_OPTIMIZATION_TRIALS', 25))
-                optimization_timeout = int(os.environ.get('OPTIMIZATION_TIMEOUT', 3600))
-                
-                self.logger.info(f"Optimizing hyperparameters with max_trials={max_trials}, timeout={optimization_timeout}s")
-                best_params = self._optimize_hyperparameters(X_train, y_train, symbol, 
-                                                           max_trials=max_trials, 
-                                                           timeout=optimization_timeout)
-            else:
-                best_params = {
-                    'model_type': 'hybrid',
-                    'lstm_units': 100,
-                    'dropout_rate': 0.3,
-                    'learning_rate': 0.001,
-                    'batch_size': int(os.environ.get('BATCH_SIZE', 32)),
-                    'dense_units': 32,
-                    'l1': 1e-5,
-                    'l2': 1e-5,
-                    'loss': 'mean_squared_error'
-                }
-            
-            # Ajuster la complexité du modèle en fonction de la variable MODEL_COMPLEXITY
-            model_complexity = os.environ.get('MODEL_COMPLEXITY', 'medium')
-            if model_complexity == 'low':
-                best_params['lstm_units'] = min(best_params.get('lstm_units', 100), 64)
-                best_params['dense_units'] = min(best_params.get('dense_units', 32), 16)
-            elif model_complexity == 'high':
-                # Garder les valeurs optimisées
-                pass
-            
-            # Build and train the model
-            self.logger.info(f"Building model with parameters: {best_params}")
-            model = self.build_model(best_params, input_shape=(X_train.shape[1], X_train.shape[2]))
-            
-            # Define callbacks
-            model_path = os.path.join(self.model_dir, f'{symbol}_model.h5')
-            callbacks = [
-                EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True),
-                ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=10, min_lr=1e-6),
-                ModelCheckpoint(filepath=model_path, save_best_only=True, monitor='val_loss')
-            ]
-            
-            # Ajustement des époques en fonction de MODEL_COMPLEXITY
-            if model_complexity == 'low':
-                epochs = min(epochs, 50)
-            elif model_complexity == 'medium':
-                epochs = min(epochs, 100)
-            
-            # Train the model
-            batch_size = best_params.get('batch_size', 32)
-            self.logger.info(f"Training model for {epochs} epochs with batch_size={batch_size}")
-            
-            # Configurer TensorFlow pour gérer l'utilisation du GPU de manière robuste
-            use_gpu = os.environ.get('USE_GPU', 'true').lower() == 'true'
-            gpu_available = False
-            
-            if use_gpu:
-                try:
-                    # Importer la fonction de vérification et configuration du GPU
-                    from app.model_trainer import check_gpu_availability, configure_gpu_environment
-                    
-                    # Vérifier la disponibilité du GPU
-                    gpu_info = check_gpu_availability()
-                    gpu_available = gpu_info['available']
-                    
-                    if gpu_available:
-                        # Configurer l'environnement GPU
-                        gpu_usable = configure_gpu_environment(gpu_info)
-                        if not gpu_usable:
-                            self.logger.warning("GPU détecté mais ne peut pas être configuré correctement. Utilisation du CPU.")
-                            os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-                            gpu_available = False
-                        else:
-                            self.logger.info(f"Utilisation du GPU pour l'entraînement: {gpu_info.get('devices', ['GPU'])}")
-                    else:
-                        self.logger.warning("Aucun GPU détecté. L'entraînement se fera sur CPU.")
-                        os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-                except Exception as e:
-                    self.logger.error(f"Erreur lors de la configuration du GPU: {e}. Utilisation du CPU.")
-                    os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-                    gpu_available = False
-            else:
-                # Forcer l'utilisation du CPU si use_gpu est False
-                self.logger.info("Utilisation forcée du CPU (GPU désactivé par configuration)")
-                os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-            
-            # Ajustement des paramètres d'entraînement en fonction de la disponibilité du GPU
-            if not gpu_available:
-                # Réduire la taille du batch sur CPU pour éviter les problèmes de mémoire
-                batch_size = min(batch_size, 16)
-                self.logger.info(f"Taille de batch réduite à {batch_size} pour utilisation CPU")
-                
-                # Réduire le nombre d'époques si nécessaire
-                if epochs > 50:
-                    self.logger.info(f"Réduction du nombre d'époques de {epochs} à 50 (mode CPU)")
-                    epochs = 50
-            
-            try:
-                history = model.fit(
-                    X_train, y_train,
-                    validation_data=(X_val, y_val),
-                    epochs=epochs,
-                    batch_size=batch_size,
-                    callbacks=callbacks,
-                    verbose=1
-                )
-                
-                # Libérer la mémoire
-                del X_train, y_train, X_val, y_val
-                gc.collect()
-                
-                # Load the best model (saved by ModelCheckpoint)
-                if os.path.exists(model_path):
-                    model = load_model(model_path)
-            except Exception as e:
-                self.logger.error(f"Erreur lors de la formation du modèle: {e}")
-            
-            # Store the model
-            self.models[symbol] = model
-            
-            # Save feature column names for prediction
-            joblib.dump(
-                list(feature_data.columns) if 'feature_data' in locals() else [],
-                os.path.join(self.model_dir, f'{symbol}_feature_columns.pkl')
+            best_params = self._optimize_hyperparameters(
+                X_train, y_train, symbol, 
+                max_trials=kwargs.get('max_trials', 25),
+                timeout=kwargs.get('timeout', 3600)
             )
             
-            # Save scalers
-            joblib.dump(
-                self.scalers[symbol],
-                os.path.join(self.model_dir, f'{symbol}_target_scaler.pkl')
+            self.logger.info(f"Meilleurs hyperparamètres: {best_params}")
+            self._log_memory_usage("Après optimisation")
+        else:
+            # Use default parameters
+            best_params = {
+                'model_type': 'hybrid',
+                'lstm_units': 64,
+                'dropout_rate': 0.3,
+                'learning_rate': 0.001,
+                'l1_reg': 0.0001,
+                'l2_reg': 0.0001,
+                'use_batch_norm': True,
+                'use_bidirectional': True,
+                'use_attention': True,
+                'num_attention_heads': 2,
+                'key_dim': 32
+            }
+            self.logger.info(f"Utilisation des paramètres par défaut: {best_params}")
+        
+        # Build model with best parameters
+        input_shape = (X_train.shape[1], X_train.shape[2])
+        model = self.build_model(best_params, input_shape)
+        
+        # Log model summary
+        stringlist = []
+        model.summary(print_fn=lambda x: stringlist.append(x))
+        self.logger.info("Architecture du modèle:\n" + "\n".join(stringlist))
+        
+        # Callbacks for training
+        callbacks = [
+            EarlyStopping(
+                monitor='val_loss',
+                patience=20,
+                restore_best_weights=True,
+                verbose=1
+            ),
+            ReduceLROnPlateau(
+                monitor='val_loss',
+                factor=0.5,
+                patience=10,
+                min_lr=1e-6,
+                verbose=1
+            ),
+            ModelCheckpoint(
+                filepath=os.path.join(self.model_dir, f'{symbol}_best_model.h5'),
+                monitor='val_loss',
+                save_best_only=True,
+                verbose=1
             )
-            joblib.dump(
-                self.feature_scalers[symbol],
-                os.path.join(self.model_dir, f'{symbol}_feature_scalers.pkl')
-            )
-            
-            # Save hyperparameters
-            joblib.dump(
-                best_params,
-                os.path.join(self.model_dir, f'{symbol}_hyperparams.pkl')
-            )
-            
-            # Libérer la mémoire associée aux modèles pour éviter les fuites
-            tf.keras.backend.clear_session()
-            gc.collect()
-            
-            self.logger.info(f"Model trained for symbol: {symbol}")
-            return history
-
-        except Exception as e:
-            self.logger.error(f"Error during model training for {symbol}: {str(e)}")
-            # Libérer la mémoire en cas d'erreur
-            tf.keras.backend.clear_session()
-            gc.collect()
-            raise
+        ]
+        
+        # Train model
+        self.logger.info(f"Entraînement du modèle pour {symbol} avec {epochs} epochs...")
+        history = model.fit(
+            X_train, y_train,
+            validation_data=(X_val, y_val),
+            epochs=epochs,
+            batch_size=kwargs.get('batch_size', 32),
+            callbacks=callbacks,
+            verbose=1
+        )
+        
+        # Evaluate model on validation set
+        self._log_memory_usage("Avant évaluation")
+        evaluation = self._evaluate_model(model, X_val, y_val, symbol)
+        self.logger.info(f"Métriques d'évaluation: {evaluation}")
+        
+        # Store the model
+        self.models[symbol] = model
+        
+        # Save the model to disk
+        self.logger.info(f"Sauvegarde du modèle pour {symbol}")
+        self.save(symbol)
+        
+        # Log training time
+        training_time = time.time() - training_start_time
+        self.logger.info(f"Temps total d'entraînement pour {symbol}: {training_time:.2f} secondes")
+        self._log_memory_usage("Fin d'entraînement")
+        
+        # Free memory
+        gc.collect()
+        
+        return history
 
     def _evaluate_model(self, model, X_val, y_val, symbol):
         """
@@ -736,122 +837,127 @@ class PricePredictionModel:
 
     def predict(self, data, symbol, days_ahead=1):
         """
-        Make predictions using the trained model.
+        Make price predictions for the given data.
         
         Args:
             data: DataFrame with OHLCV data
             symbol: Trading symbol
-            days_ahead: How many days ahead to predict
+            days_ahead: Number of days to predict ahead
             
         Returns:
-            Dictionary with predictions and confidence intervals
+            DataFrame with predictions and confidence intervals
         """
         if symbol not in self.models:
-            # Try to load the model from disk
-            model_path = os.path.join(self.model_dir, f'{symbol}_model.h5')
-            if os.path.exists(model_path):
-                self.models[symbol] = load_model(model_path)
-                
-                # Load scalers
-                scaler_path = os.path.join(self.model_dir, f'{symbol}_target_scaler.pkl')
-                feature_scalers_path = os.path.join(self.model_dir, f'{symbol}_feature_scalers.pkl')
-                
-                if os.path.exists(scaler_path) and os.path.exists(feature_scalers_path):
-                    self.scalers[symbol] = joblib.load(scaler_path)
-                    self.feature_scalers[symbol] = joblib.load(feature_scalers_path)
+            self.logger.warning(f"Aucun modèle trouvé pour {symbol}, tentative de chargement...")
+            try:
+                self.load(symbol)
+            except Exception as e:
+                self.logger.error(f"Impossible de charger le modèle pour {symbol}: {e}")
+                return None
+        
+        # Mesure du temps de prédiction pour les performances
+        prediction_start_time = time.time()
+        
+        # Prepare data
+        prepared_data = self._prepare_features(data)
+        
+        # Ensure we have enough data
+        if len(prepared_data) < self.sequence_length + days_ahead:
+            self.logger.error(f"Données insuffisantes pour la prédiction ({len(prepared_data)} < {self.sequence_length + days_ahead})")
+            return None
+        
+        # Split into features and target
+        X = prepared_data.drop('Close', axis=1)
+        y = prepared_data['Close']
+        
+        # Scale data
+        X_scaled, _ = self._scale_data(X, symbol, train_mode=False)
+        
+        # For scaling back predictions
+        _, target_scaler = self._scale_data(pd.DataFrame(y), symbol + '_target', train_mode=False)
+        
+        # Create sequences for each day ahead
+        all_predictions = []
+        
+        for i in range(days_ahead):
+            # Get the sequence for current prediction day
+            if i == 0:
+                # For first day, use the latest available data
+                X_pred = X_scaled[-self.sequence_length:].values.reshape(1, self.sequence_length, X_scaled.shape[1])
+            else:
+                # For subsequent days, shift the window by adding the previous prediction
+                # and dropping the oldest observation
+                X_pred = np.roll(X_pred, -1, axis=1)
+                # Here we would need to update the last entry with the previous prediction
+                # This is a simplified approach, as ideally we'd reconstruct all features
+            
+            # Make prediction
+            pred_scaled = self.models[symbol].predict(X_pred, verbose=0)
+            
+            # Add batch dimension if needed
+            if len(pred_scaled.shape) == 1:
+                pred_scaled = pred_scaled.reshape(-1, 1)
+            
+            # Inverse scaling
+            pred = target_scaler.inverse_transform(pred_scaled)[0, 0]
+            
+            # Calculate prediction interval (simpler approach for multiple days)
+            pred_std = np.std(y[-30:]) * (1 + i * 0.1)  # Increasing uncertainty with time
+            lower_bound = pred - 1.96 * pred_std
+            upper_bound = pred + 1.96 * pred_std
+            
+            # Calculate prediction date
+            if isinstance(data.index, pd.DatetimeIndex):
+                last_date = data.index[-1]
+                if i == 0:
+                    # For the first prediction, use the next day after the last date
+                    pred_date = last_date + pd.Timedelta(days=1)
                 else:
-                    raise ValueError(f"Scalers for {symbol} not found. Train the model first.")
+                    # For subsequent predictions, add one day to the previous prediction date
+                    pred_date = all_predictions[-1]['date'] + pd.Timedelta(days=1)
             else:
-                raise ValueError(f"Model for {symbol} not found. Train the model first.")
+                # If index is not datetime, use numeric index
+                pred_date = i + 1
+            
+            # Store prediction
+            all_predictions.append({
+                'date': pred_date,
+                'predicted_price': pred,
+                'lower_bound': lower_bound,
+                'upper_bound': upper_bound,
+                'confidence': 1.0 - (i * 0.05)  # Decreasing confidence with time
+            })
         
-        # Get feature column names
-        feature_columns_path = os.path.join(self.model_dir, f'{symbol}_feature_columns.pkl')
+        # Create DataFrame of predictions
+        predictions_df = pd.DataFrame(all_predictions)
         
-        try:
-            # Create features from input data
-            feature_data = self._prepare_features(data)
-            
-            # Check if we have enough features
-            if len(feature_data.columns) < 5:  # Simple heuristic check
-                self.logger.warning(f"Missing column PriceDiff in input data. Creating features...")
-                # Try to create more features
-                feature_data = self._prepare_features(data)
-            
-            # Scale the features
-            X_scaled, _ = self._scale_data(feature_data, symbol, train_mode=False)
-            
-            # Create sequences
-            X_seq, _ = self._create_sequences(X_scaled, np.zeros((len(X_scaled), 1)), self.sequence_length, self.future_periods)
-            
-            # Make predictions
-            predictions = self.models[symbol].predict(X_seq)
-            
-            # Inverse transform to get actual prices
-            predictions_orig = self.scalers[symbol].inverse_transform(predictions)
-            
-            # Get the last actual price
-            last_price = data['Close'].iloc[-1]
-            
-            # Calculate predicted price
-            predicted_price = predictions_orig[-1][0]
-            
-            # Calculate confidence intervals (simple approach)
-            std_dev = np.std(data['Close'].pct_change().dropna()) * np.sqrt(days_ahead)
-            lower_bound = predicted_price * (1 - 1.96 * std_dev)
-            upper_bound = predicted_price * (1 + 1.96 * std_dev)
-            
-            # Calculate percent change
-            percent_change = ((predicted_price / last_price) - 1) * 100
-            
-            # Return prediction with confidence intervals
-            return {
-                'current_price': float(last_price),
-                'predicted_price': float(predicted_price),
-                'percent_change': float(percent_change),
-                'lower_bound': float(lower_bound),
-                'upper_bound': float(upper_bound),
-                'confidence': float(1 - std_dev)  # Simple confidence measure
-            }
-            
-        except Exception as e:
-            self.logger.error(f"Error during prediction: {str(e)}")
-            
-            # Fallback to a simple prediction based on the last price
-            if 'Close' in data.columns:
-                last_price = data['Close'].iloc[-1]
-                # Simple random walk prediction
-                predicted_price = last_price * (1 + np.random.normal(0, 0.01))
-                return {
-                    'current_price': float(last_price),
-                    'predicted_price': float(predicted_price),
-                    'percent_change': float(((predicted_price / last_price) - 1) * 100),
-                    'lower_bound': float(last_price * 0.95),
-                    'upper_bound': float(last_price * 1.05),
-                    'confidence': 0.5,
-                    'is_fallback': True
-                }
-            else:
-                raise ValueError(f"Cannot make prediction: no Close column in data and model not trained for {symbol}")
+        # Log prediction time
+        prediction_time = time.time() - prediction_start_time
+        self.logger.debug(f"Temps de prédiction pour {symbol}: {prediction_time:.4f} secondes")
+        
+        return predictions_df
 
     def save(self, symbol=None):
         """
-        Save model(s) and related data to disk.
+        Save the model and associated data to disk.
         
         Args:
-            symbol: Specific symbol to save, or None to save all
+            symbol: Trading symbol or None to save all models
         """
-        if symbol:
-            symbols = [symbol]
-        else:
+        # If symbol is None, save all models
+        if symbol is None:
             symbols = list(self.models.keys())
-            
+            self.logger.info(f"Saving all models: {symbols}")
+        else:
+            symbols = [symbol]
+            self.logger.info(f"Saving model for {symbol}")
+        
         for sym in symbols:
             if sym in self.models:
-                # Save model
-                model_path = os.path.join(self.model_dir, f'{sym}_model.h5')
-                self.models[sym].save(model_path)
+                # Save the model
+                self.models[sym].save(os.path.join(self.model_dir, f'{sym}_model.h5'))
                 
-                # Save scalers
+                # Save scalers if available
                 if sym in self.scalers:
                     joblib.dump(
                         self.scalers[sym],
@@ -865,8 +971,6 @@ class PricePredictionModel:
                     )
                     
                 self.logger.info(f"Model and data for {sym} saved successfully")
-            else:
-                self.logger.warning(f"No model found for {sym}")
 
     def load(self, symbol):
         """

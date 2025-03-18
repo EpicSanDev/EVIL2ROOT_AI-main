@@ -3,43 +3,119 @@
 {% block content %}
     <h1>Trading Bot Dashboard</h1>
     
-    <div class="dashboard-grid">
-        <div class="performance-panel">
-            <h2>System Performance</h2>
-            <div class="performance-stats">
-                <div class="stat-item">
-                    <span class="stat-label">CPU:</span>
-                    <span class="stat-value">{{ cpu_percent }}%</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">Memory:</span>
-                    <span class="stat-value">{{ memory_info.percent }}%</span>
+    <div class="portfolio-overview">
+        <div class="portfolio-card">
+            <div class="portfolio-header">
+                <h3>Portfolio Performance</h3>
+                <div class="portfolio-actions">
+                    <button class="button small outline-primary" id="refresh-portfolio">
+                        <i class="fas fa-sync-alt"></i> Rafraîchir
+                    </button>
                 </div>
             </div>
-            <div id="cpu-chart"></div>
+            <div class="portfolio-metrics">
+                <div class="metric-card">
+                    <div class="metric-card-header">
+                        <h4 class="metric-card-title">Balance Totale</h4>
+                        <div class="metric-card-icon"><i class="fas fa-wallet"></i></div>
+                    </div>
+                    <div class="metric-card-value" id="total-balance">--</div>
+                    <div class="metric-card-description">
+                        <span class="change-indicator" id="balance-change">--</span>
+                    </div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-card-header">
+                        <h4 class="metric-card-title">Profit Quotidien</h4>
+                        <div class="metric-card-icon"><i class="fas fa-chart-line"></i></div>
+                    </div>
+                    <div class="metric-card-value" id="daily-profit">--</div>
+                    <div class="metric-card-description">
+                        <span class="change-indicator" id="profit-percentage">--</span>
+                    </div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-card-header">
+                        <h4 class="metric-card-title">Trades Actifs</h4>
+                        <div class="metric-card-icon"><i class="fas fa-exchange-alt"></i></div>
+                    </div>
+                    <div class="metric-card-value" id="active-trades">--</div>
+                    <div class="metric-card-description">
+                        <span id="win-rate">Taux de succès: --</span>
+                    </div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-card-header">
+                        <h4 class="metric-card-title">Performances</h4>
+                        <div class="metric-card-icon"><i class="fas fa-trophy"></i></div>
+                    </div>
+                    <div class="metric-card-value" id="performance-score">--</div>
+                    <div class="metric-card-description">
+                        <span id="best-asset">Meilleur actif: --</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="dashboard-grid">
+        <div class="performance-panel">
+            <div class="panel-header">
+                <h2><i class="fas fa-chart-bar"></i> Performance du Système</h2>
+                <div class="panel-actions">
+                    <button class="button small outline" id="system-details">Détails</button>
+                </div>
+            </div>
+            <div class="performance-stats">
+                <div class="stat-item">
+                    <div class="stat-icon"><i class="fas fa-microchip"></i></div>
+                    <span class="stat-label">CPU:</span>
+                    <span class="stat-value">{{ cpu_percent }}%</span>
+                    <div class="progress-container">
+                        <div class="progress-bar" style="width: {{ cpu_percent }}%"></div>
+                    </div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-icon"><i class="fas fa-memory"></i></div>
+                    <span class="stat-label">Mémoire:</span>
+                    <span class="stat-value">{{ memory_info.percent }}%</span>
+                    <div class="progress-container">
+                        <div class="progress-bar" style="width: {{ memory_info.percent }}%"></div>
+                    </div>
+                </div>
+            </div>
+            <div id="cpu-chart" class="chart-container"></div>
         </div>
 
         <div class="trading-panel">
-            <h2>Bot Status</h2>
-            <div id="bot-status">
-                <p>State: <span id="bot-state" class="status-indicator">Loading...</span></p>
+            <div class="panel-header">
+                <h2><i class="fas fa-robot"></i> Status du Bot</h2>
+                <div class="panel-actions">
+                    <span id="bot-state" class="status-indicator">Loading...</span>
+                </div>
             </div>
             
             <div class="bot-controls">
-                <button id="start-bot" class="button primary">Start Bot</button>
-                <button id="pause-bot" class="button secondary">Pause Bot</button>
-                <button id="stop-bot" class="button danger">Stop Bot</button>
+                <button id="start-bot" class="button primary"><i class="fas fa-play"></i> Démarrer</button>
+                <button id="pause-bot" class="button secondary"><i class="fas fa-pause"></i> Pause</button>
+                <button id="stop-bot" class="button danger"><i class="fas fa-stop"></i> Arrêter</button>
             </div>
-        
-            <h2>Trading Signals</h2>
+            
+            <div class="panel-header">
+                <h2><i class="fas fa-signal"></i> Signaux de Trading</h2>
+                <div class="panel-actions">
+                    <button class="button small outline" id="view-all-signals">Voir Tout</button>
+                </div>
+            </div>
             <div class="signals-table">
                 <table id="signals-table">
                     <thead>
                         <tr>
-                            <th>Symbol</th>
+                            <th>Symbole</th>
                             <th>Signal</th>
-                            <th>Timestamp</th>
-                            <th>Confidence</th>
+                            <th>Horodatage</th>
+                            <th>Confiance</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="signals-data">
@@ -47,19 +123,58 @@
                             {% for signal in signals %}
                                 <tr>
                                     <td>{{ signal.symbol }}</td>
-                                    <td class="signal-{{ signal.decision }}">{{ signal.decision }}</td>
+                                    <td class="signal signal-{{ signal.decision }}">{{ signal.decision }}</td>
                                     <td>{{ signal.timestamp }}</td>
-                                    <td>{{ signal.confidence }}</td>
+                                    <td>
+                                        <div class="progress-container">
+                                            <div class="progress-bar" style="width: {{ signal.confidence * 100 }}%"></div>
+                                            <span class="progress-value">{{ (signal.confidence * 100)|round(1) }}%</span>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <button class="button small outline" data-signal-id="{{ signal.id }}">Détails</button>
+                                    </td>
                                 </tr>
                             {% endfor %}
                         {% else %}
                             <tr>
-                                <td colspan="4">No signals available</td>
+                                <td colspan="5">Aucun signal disponible</td>
                             </tr>
                         {% endif %}
                     </tbody>
                 </table>
             </div>
+        </div>
+    </div>
+
+    <div class="dashboard-grid">
+        <div class="market-overview-panel">
+            <div class="panel-header">
+                <h2><i class="fas fa-globe"></i> Aperçu du Marché</h2>
+                <div class="panel-actions">
+                    <select id="market-timeframe" class="form-control">
+                        <option value="1d">1 jour</option>
+                        <option value="1w">1 semaine</option>
+                        <option value="1m">1 mois</option>
+                    </select>
+                </div>
+            </div>
+            <div id="market-overview-chart" class="chart-container"></div>
+        </div>
+        
+        <div class="sentiment-panel">
+            <div class="panel-header">
+                <h2><i class="fas fa-comment-alt"></i> Analyse de Sentiment</h2>
+                <div class="panel-actions">
+                    <select id="sentiment-symbol" class="form-control">
+                        <option value="global">Global</option>
+                        <option value="AAPL">AAPL</option>
+                        <option value="MSFT">MSFT</option>
+                        <option value="AMZN">AMZN</option>
+                    </select>
+                </div>
+            </div>
+            <div id="sentiment-chart" class="chart-container"></div>
         </div>
     </div>
 
@@ -79,6 +194,16 @@
         
         document.getElementById('stop-bot').addEventListener('click', function() {
             controlBot('stop');
+        });
+        
+        // View all signals button
+        document.getElementById('view-all-signals').addEventListener('click', function() {
+            window.location.href = '/advanced';
+        });
+        
+        // System details button
+        document.getElementById('system-details').addEventListener('click', function() {
+            window.location.href = '/performance';
         });
         
         // Function to control the bot
@@ -122,5 +247,96 @@
                 }, 500);
             }, 3000);
         }
+        
+        // Fetch portfolio data
+        async function fetchPortfolioData() {
+            try {
+                const response = await fetch('/api/performance/equity');
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Update portfolio metrics
+                    document.getElementById('total-balance').textContent = `$${data.current_balance.toFixed(2)}`;
+                    
+                    const change = data.daily_change;
+                    const changeElement = document.getElementById('balance-change');
+                    changeElement.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
+                    changeElement.className = `change-indicator ${change >= 0 ? 'positive' : 'negative'}`;
+                    
+                    document.getElementById('daily-profit').textContent = `$${data.daily_profit.toFixed(2)}`;
+                    
+                    const profitPercent = data.daily_profit_percent;
+                    const profitElement = document.getElementById('profit-percentage');
+                    profitElement.textContent = `${profitPercent >= 0 ? '+' : ''}${profitPercent.toFixed(2)}%`;
+                    profitElement.className = `change-indicator ${profitPercent >= 0 ? 'positive' : 'negative'}`;
+                    
+                    document.getElementById('active-trades').textContent = data.active_trades;
+                    document.getElementById('win-rate').textContent = `Taux de succès: ${data.win_rate.toFixed(1)}%`;
+                    
+                    document.getElementById('performance-score').textContent = data.performance_score.toFixed(1);
+                    document.getElementById('best-asset').textContent = `Meilleur actif: ${data.best_performing_asset}`;
+                    
+                    // Create market overview chart
+                    createMarketOverviewChart(data.equity_history);
+                    
+                    // Create sentiment chart
+                    createSentimentChart(data.sentiment_data);
+                }
+            } catch (error) {
+                console.error('Error fetching portfolio data:', error);
+            }
+        }
+        
+        // Create market overview chart
+        function createMarketOverviewChart(data) {
+            // Implementation will be added in charts.js
+            if (window.createMarketChart && data) {
+                window.createMarketChart('market-overview-chart', data);
+            }
+        }
+        
+        // Create sentiment chart
+        function createSentimentChart(data) {
+            // Implementation will be added in charts.js
+            if (window.createSentimentChart && data) {
+                window.createSentimentChart('sentiment-chart', data);
+            }
+        }
+        
+        // Fetch bot status
+        async function fetchBotStatus() {
+            try {
+                const response = await fetch('/bot_status');
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('bot-state').textContent = data.state;
+                    document.getElementById('bot-state').className = 'status-indicator ' + data.state;
+                }
+            } catch (error) {
+                console.error('Error fetching bot status:', error);
+            }
+        }
+        
+        // Initial data load
+        fetchPortfolioData();
+        fetchBotStatus();
+        
+        // Set up periodic refresh
+        setInterval(fetchPortfolioData, 60000); // Refresh every minute
+        setInterval(fetchBotStatus, 30000); // Refresh every 30 seconds
+        
+        // Refresh button
+        document.getElementById('refresh-portfolio').addEventListener('click', fetchPortfolioData);
+        
+        // Market timeframe selector
+        document.getElementById('market-timeframe').addEventListener('change', function() {
+            fetchPortfolioData();
+        });
+        
+        // Sentiment symbol selector
+        document.getElementById('sentiment-symbol').addEventListener('change', function() {
+            fetchPortfolioData();
+        });
     </script>
 {% endblock %}
