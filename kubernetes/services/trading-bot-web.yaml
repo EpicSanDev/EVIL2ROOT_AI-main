@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: trading-bot-web
+  namespace: evil2root-trading
+  labels:
+    app: trading-bot
+    component: web
+spec:
+  selector:
+    app: trading-bot
+    component: web
+  ports:
+  - name: web
+    port: 5000
+    targetPort: web
+  - name: metrics
+    port: 9090
+    targetPort: metrics
+  type: ClusterIP 

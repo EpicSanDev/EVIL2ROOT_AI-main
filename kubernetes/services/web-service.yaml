@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-service
+  namespace: evil2root-trading
+  annotations:
+    service.beta.kubernetes.io/do-loadbalancer-protocol: "http"
+    service.beta.kubernetes.io/do-loadbalancer-size-slug: "lb-small"
+    service.beta.kubernetes.io/do-loadbalancer-disable-lets-encrypt-dns-records: "true"
+spec:
+  selector:
+    app: trading-bot
+    component: web
+  ports:
+  - port: 80
+    targetPort: web
+    protocol: TCP
+  type: LoadBalancer 

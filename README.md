@@ -333,6 +333,37 @@ Les principales configurations se trouvent dans le fichier `.env` :
 Personnalisez les paramètres des modèles dans les fichiers de configuration dédiés :
 - `config/models/price_prediction.json`
 
+# Configuration des secrets GitHub Actions
+
+Pour assurer le déploiement automatique de l'application vers DigitalOcean Kubernetes, ajoutez les secrets suivants dans les paramètres de votre dépôt GitHub (Settings > Secrets and variables > Actions > New repository secret):
+
+1. **DIGITALOCEAN_ACCESS_TOKEN** : Votre token d'accès personnel DigitalOcean avec les permissions nécessaires pour:
+   - Créer et gérer des clusters Kubernetes
+   - Pousser des images dans le registre DigitalOcean
+   - Créer et gérer des ressources associées
+
+2. **NOTIFICATION_EMAIL** : L'adresse e-mail à utiliser pour les notifications et l'authentification au registre
+
+Secrets optionnels (valeurs par défaut utilisées si non définis):
+- **DB_USER** : Nom d'utilisateur de la base de données (défaut: postgres)
+- **DB_PASSWORD** : Mot de passe de la base de données (défaut: changeme)
+- **DB_NAME** : Nom de la base de données (défaut: tradingbot)
+- **REDIS_PASSWORD** : Mot de passe Redis (défaut: changeme)
+- **GRAFANA_ADMIN_USER** : Utilisateur administrateur Grafana (défaut: admin)
+- **GRAFANA_ADMIN_PASSWORD** : Mot de passe administrateur Grafana (défaut: admin)
+
+Pour une utilisation en production, assurez-vous de définir des mots de passe sécurisés pour tous ces secrets.
+
+# Fonctionnement du déploiement automatique
+
+Une fois les secrets configurés, chaque push sur la branche `main` déclenchera automatiquement:
+1. La construction et le push de l'image Docker vers le registre DigitalOcean
+2. La création du cluster Kubernetes s'il n'existe pas déjà
+3. Le déploiement de toutes les ressources nécessaires (deployments, services, ingress, etc.)
+4. La mise à jour du fichier ACCESS.md avec l'adresse IP du service
+
+Vous pouvez suivre le processus de déploiement dans l'onglet "Actions" de votre dépôt GitHub.
+
 # EVIL2ROOT Trading Bot - Service Web Complet
 
 Un service web complet pour le bot de trading EVIL2ROOT, comprenant une API RESTful et une interface utilisateur moderne.

@@ -4,6 +4,11 @@ on:
   push:
     branches: [ main ]
 
+env:
+  DIGITALOCEAN_REGISTRY: registry.digitalocean.com/evil2root-registry
+  DEPLOYMENT_NAME: evil2root-ai
+  NAMESPACE: evil2root-trading
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -26,7 +31,9 @@ jobs:
         with:
           context: .
           push: true
-          tags: registry.digitalocean.com/evil2root-registry/evil2root-ai:latest
+          tags: ${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.DEPLOYMENT_NAME }}:latest,${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.DEPLOYMENT_NAME }}:${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.DEPLOYMENT_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.DEPLOYMENT_NAME }}:buildcache,mode=max
 
       - name: Install doctl
         uses: digitalocean/action-doctl@v2
@@ -55,44 +62,97 @@ jobs:
           # Enregistrer le fichier kubeconfig
           doctl kubernetes cluster kubeconfig save evil2root-trading
 
-      - name: Deploy to Kubernetes
+      - name: Create registry secret
         run: |
-          # Créer le namespace s'il n'existe pas
-          kubectl apply -f kubernetes/namespace.yaml
+          # Création du namespace s'il n'existe pas
+          kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
           
-          # Appliquer les configurations et secrets
-          kubectl apply -f kubernetes/configmap.yaml
-          kubectl apply -f kubernetes/secrets.yaml
+          # Création du secret pour le registre DigitalOcean
+          kubectl create secret docker-registry registry-evil2root-registry \
+            --namespace=${{ env.NAMESPACE }} \
+            --docker-server=registry.digitalocean.com \
+            --docker-username=${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }} \
+            --docker-password=${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }} \
+            --docker-email=${{ secrets.NOTIFICATION_EMAIL }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Create application secrets
+        run: |
+          # Application des secrets à partir d'un fichier YAML avec substitution des variables d'environnement
+          cat <<EOF > temp-secrets.yaml
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: trading-bot-secrets
+            namespace: ${{ env.NAMESPACE }}
+          type: Opaque
+          stringData:
+            DB_USER: "${{ secrets.DB_USER || 'postgres' }}"
+            DB_PASSWORD: "${{ secrets.DB_PASSWORD || 'changeme' }}"
+            DB_NAME: "${{ secrets.DB_NAME || 'tradingbot' }}"
+            REDIS_PASSWORD: "${{ secrets.REDIS_PASSWORD || 'changeme' }}"
+            GRAFANA_ADMIN_USER: "${{ secrets.GRAFANA_ADMIN_USER || 'admin' }}"
+            GRAFANA_ADMIN_PASSWORD: "${{ secrets.GRAFANA_ADMIN_PASSWORD || 'admin' }}"
+          EOF
           
-          # Déployer l'infrastructure (stockage, réseau, etc.)
-          kubectl apply -f kubernetes/storage.yaml
-          kubectl apply -f kubernetes/network-policies.yaml
+          kubectl apply -f temp-secrets.yaml
+          rm temp-secrets.yaml
+
+      - name: Deploy infrastructure components
+        run: |
+          # Installation de metrics-server s'il n'est pas déjà installé
+          if ! kubectl get deployment metrics-server -n kube-system &> /dev/null; then
+            echo "Installation de metrics-server..."
+            kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+          else
+            echo "Le metrics-server est déjà installé."
+          fi
           
-          # Déployer les services de base (Redis, DB)
-          kubectl apply -f kubernetes/redis-deployment.yaml
-          kubectl apply -f kubernetes/db-deployment.yaml
+          # Installation de Nginx Ingress Controller s'il n'est pas déjà installé
+          if ! kubectl get namespace ingress-nginx &> /dev/null; then
+            echo "Installation de Nginx Ingress Controller..."
+            kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/cloud/deploy.yaml
+          else
+            echo "Nginx Ingress Controller est déjà installé."
+          fi
           
-          # Déployer l'application principale
-          kubectl apply -f kubernetes/web-deployment.yaml
-          kubectl apply -f kubernetes/market-scheduler-deployment.yaml
-          kubectl apply -f kubernetes/analysis-bot-deployment.yaml
+          # Déploiement des services de base (Redis, PostgreSQL)
+          kubectl apply -f kubernetes/services/redis.yaml || echo "Erreur lors du déploiement de Redis, assurez-vous que le fichier existe"
+          kubectl apply -f kubernetes/services/postgres.yaml || echo "Erreur lors du déploiement de PostgreSQL, assurez-vous que le fichier existe"
+
+      - name: Deploy application components
+        run: |
+          # Déploiement des composants de l'application
+          kubectl apply -f kubernetes/deployments/trading-bot-web.yaml
+          kubectl apply -f kubernetes/deployments/analysis-bot.yaml
+          kubectl apply -f kubernetes/deployments/market-scheduler.yaml
           
-          # Déployer le service externe avec LoadBalancer
-          kubectl apply -f kubernetes/web-service-external.yaml
+          # Déploiement des services
+          kubectl apply -f kubernetes/services/trading-bot-web.yaml
+          kubectl apply -f kubernetes/services/web-service.yaml
           
-          # Appliquer les politiques de scaling
-          kubectl apply -f kubernetes/hpa.yaml
-          kubectl apply -f kubernetes/pod-disruption-budgets.yaml
+          # Déploiement de l'ingress
+          kubectl apply -f kubernetes/ingress/trading-bot-web-ingress.yaml
+          
+          # Déploiement des autoscalers
+          kubectl apply -f kubernetes/hpa/trading-bot-web-hpa.yaml
+          kubectl apply -f kubernetes/hpa/analysis-bot-hpa.yaml
+          
+          echo "Application déployée avec succès !"
+
+      - name: Wait for services and create report
+        run: |
+          echo "Attente de l'initialisation des services..."
+          sleep 30
           
           # Récupérer et afficher l'IP externe du service
-          echo "Attente de l'attribution d'une IP externe..."
+          echo "Récupération de l'IP externe..."
           
-          # Boucle pour attendre que le service obtienne une IP externe
           MAX_RETRIES=20
           RETRY_COUNT=0
           
           until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
-            EXTERNAL_IP=$(kubectl get svc -n evil2root-trading web-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+            EXTERNAL_IP=$(kubectl get svc -n ${{ env.NAMESPACE }} web-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
             
             if [ -n "$EXTERNAL_IP" ] && [ "$EXTERNAL_IP" != "<pending>" ]; then
               echo "Application déployée avec succès !"
@@ -108,12 +168,18 @@ jobs:
             sleep 15
           done
           
-          if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-            echo "Impossible d'obtenir une IP externe après $MAX_RETRIES tentatives."
-            echo "Veuillez vérifier manuellement l'état du service avec: kubectl get svc -n evil2root-trading web-service"
-            exit 1
-          fi
-      
+          # Afficher l'état actuel des pods
+          echo "État actuel des pods:"
+          kubectl get pods -n ${{ env.NAMESPACE }}
+          
+          # Afficher l'état actuel des services
+          echo "État actuel des services:"
+          kubectl get services -n ${{ env.NAMESPACE }}
+          
+          # Afficher l'état actuel de l'ingress
+          echo "État actuel de l'ingress:"
+          kubectl get ingress -n ${{ env.NAMESPACE }}
+
       - name: Ajouter l'IP au README
         run: |
           if [ -n "$EXTERNAL_IP" ]; then

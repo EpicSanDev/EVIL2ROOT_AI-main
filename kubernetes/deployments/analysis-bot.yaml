@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analysis-bot
+  namespace: evil2root-trading
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: trading-bot
+      component: analysis-bot
+  template:
+    metadata:
+      labels:
+        app: trading-bot
+        component: analysis-bot
+    spec:
+      containers:
+      - name: analysis-bot
+        image: registry.digitalocean.com/evil2root-registry/evil2root-ai:latest
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        env:
+        - name: APP_MODE
+          value: "analysis"
+        - name: REDIS_HOST
+          value: "redis"
+        - name: POSTGRES_HOST
+          value: "postgres"
+        - name: LOG_LEVEL
+          value: "info"
+      imagePullSecrets:
+      - name: registry-evil2root-registry 
