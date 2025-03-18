@@ -7,14 +7,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     python3-dev \
     libpq-dev \
+    g++ \
+    make \
+    cmake \
+    build-essential \
+    libblas-dev \
+    liblapack-dev \
+    libatlas-base-dev \
+    gfortran \
+    git \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Copie des fichiers requirements
+# Copie des fichiers requirements et scripts
 COPY requirements.txt .
+COPY docker/fix-hnswlib-install.sh /tmp/fix-hnswlib-install.sh
+RUN chmod +x /tmp/fix-hnswlib-install.sh
 
 # Installation des dépendances Python
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip wheel setuptools && \
+    pip install --no-cache-dir -r requirements.txt && \
+    /tmp/fix-hnswlib-install.sh
 
 # Copie du code source
 COPY . .

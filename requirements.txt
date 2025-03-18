@@ -88,7 +88,7 @@ prometheus_client>=0.16.0  # Pour la surveillance avec Prometheus
 
 # Advanced Models
 sentence-transformers>=2.2.0
-hnswlib>=0.7.0
+# hnswlib>=0.7.0  # Commenté car cause des problèmes de compilation
 optimum>=1.9.0
 langchain>=0.0.0,<0.1.0
 # langchain-openai>=0.0.2  # Installé par fix-causalml-install.sh avec version compatible d'openai
