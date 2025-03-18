@@ -11,39 +11,34 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: trading-bot-web
-  minReplicas: 2
-  maxReplicas: 10
+  minReplicas: 3
+  maxReplicas: 15
   metrics:
   - type: Resource
     resource:
       name: cpu
       target:
         type: Utilization
-        averageUtilization: 75
+        averageUtilization: 70
   - type: Resource
     resource:
       name: memory
       target:
         type: Utilization
-        averageUtilization: 80
+        averageUtilization: 75
   - type: Pods
     pods:
       metric:
         name: http_requests_per_second
       target:
         type: AverageValue
-        averageValue: 100
+        averageValue: 80
   behavior:
     scaleUp:
-      stabilizationWindowSeconds: 60
+      stabilizationWindowSeconds: 30
       policies:
       - type: Percent
         value: 100
-        periodSeconds: 60
-      - type: Pods
-        value: 2
-        periodSeconds: 60
-      selectPolicy: Max
     scaleDown:
       stabilizationWindowSeconds: 300
       policies:
@@ -68,38 +63,38 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: analysis-bot
-  minReplicas: 1
-  maxReplicas: 5
+  minReplicas: 2
+  maxReplicas: 8
   metrics:
   - type: Resource
     resource:
       name: cpu
       target:
         type: Utilization
-        averageUtilization: 80
+        averageUtilization: 75
   - type: Resource
     resource:
       name: memory
       target:
         type: Utilization
-        averageUtilization: 80
+        averageUtilization: 75
   - type: Pods
     pods:
       metric:
         name: analysis_jobs_in_queue
       target:
         type: AverageValue
-        averageValue: 5
+        averageValue: 3
   behavior:
     scaleUp:
-      stabilizationWindowSeconds: 120
+      stabilizationWindowSeconds: 60
       policies:
       - type: Percent
         value: 100
-        periodSeconds: 180
+        periodSeconds: 90
       - type: Pods
-        value: 1
-        periodSeconds: 180
+        value: 2
+        periodSeconds: 90
       selectPolicy: Max
     scaleDown:
       stabilizationWindowSeconds: 300

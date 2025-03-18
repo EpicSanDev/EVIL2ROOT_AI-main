@@ -13,9 +13,9 @@ NC='\033[0m' # No Color
 # Variables par défaut (peuvent être modifiées en passant des arguments)
 CLUSTER_NAME="evil2root-trading"
 REGION="fra1" # Frankfurt par défaut
-NODE_SIZE="s-4vcpu-8gb" # 4 CPUs, 8GB RAM (bon équilibre coût/performance)
-NODE_COUNT=3
-GPU_NODE_SIZE="g-8vcpu-32gb" # Nœud GPU (si disponible)
+NODE_SIZE="s-16vcpu-32gb" # 16 CPUs, 32GB RAM (optimisé pour compensation du manque de GPU)
+NODE_COUNT=4
+GPU_NODE_SIZE="so1.5-16vcpu-128gb" # Nœud optimisé pour ML/AI avec plus de ressources
 GPU_NODE_COUNT=0 # Par défaut, pas de nœuds GPU
 DO_TOKEN=""
 CREATE_GPU_NODES=false
@@ -47,13 +47,13 @@ show_help() {
     echo "  -t, --token TOKEN       Token API DigitalOcean (obligatoire)"
     echo "  -n, --name NAME         Nom du cluster (défaut: evil2root-trading)"
     echo "  -r, --region REGION     Région DigitalOcean (défaut: fra1)"
-    echo "  -s, --size SIZE         Taille des nœuds (défaut: s-4vcpu-8gb)"
-    echo "  -c, --count COUNT       Nombre de nœuds (défaut: 3)"
+    echo "  -s, --size SIZE         Taille des nœuds (défaut: s-16vcpu-32gb)"
+    echo "  -c, --count COUNT       Nombre de nœuds (défaut: 4)"
     echo "  -g, --gpu               Ajouter un nœud GPU (si disponible)"
     echo "  -d, --domain DOMAIN     Domaine personnalisé pour les ingress"
     echo
     echo "Exemples:"
-    echo "  $0 --token your_token --name prod-cluster --region nyc1 --size s-8vcpu-16gb --count 5"
+    echo "  $0 --token your_token --name prod-cluster --region nyc1 --size s-16vcpu-32gb --count 5"
     echo "  $0 -t your_token -g -d trading.votredomaine.com"
     exit 0
 }
@@ -330,6 +330,31 @@ deploy_application() {
         
         # Supprimer les demandes de ressources GPU dans les jobs
         sed -i.bak '/nvidia.com\/gpu:/d' train-analyze-job.yaml
+        
+        # Optimiser les paramètres pour l'exécution CPU-only
+        print_info "Optimisation des paramètres pour l'exécution CPU uniquement..."
+        sed -i.bak 's/USE_GPU=true/USE_GPU=false/g' configmap.yaml
+        
+        # Augmenter les threads CPU pour le traitement
+        sed -i.bak 's/NUM_THREADS=4/NUM_THREADS=16/g' configmap.yaml
+        
+        # Modifier les paramètres de batch size pour s'adapter au CPU
+        sed -i.bak 's/BATCH_SIZE=64/BATCH_SIZE=32/g' configmap.yaml
+        
+        # Ajouter une configuration pour l'optimisation CPU
+        cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cpu-optimization
+  namespace: evil2root-trading
+data:
+  CPU_OPTIMIZATION: "true"
+  CPU_ONLY_MODE: "true"
+  MODEL_PRECISION: "FP32"
+  QUANTIZATION_AWARE: "false"
+  PARALLEL_WORKERS: "16"
+EOF
     fi
     
     # Exécuter le script de déploiement

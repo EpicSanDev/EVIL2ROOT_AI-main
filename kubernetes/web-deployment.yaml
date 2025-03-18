@@ -7,7 +7,7 @@ metadata:
     app: trading-bot
     component: web
 spec:
-  replicas: 2
+  replicas: 3
   selector:
     matchLabels:
       app: trading-bot
@@ -84,11 +84,11 @@ spec:
           readOnlyRootFilesystem: false
         resources:
           requests:
-            memory: "1Gi"
-            cpu: "500m"
-          limits:
-            memory: "4Gi"
+            memory: "2Gi"
             cpu: "1000m"
+          limits:
+            memory: "8Gi"
+            cpu: "2000m"
         volumeMounts:
         - name: app-data
           mountPath: /app/data

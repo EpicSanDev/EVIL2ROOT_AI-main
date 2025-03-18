@@ -7,7 +7,7 @@ metadata:
     app: trading-bot
     component: analysis-bot
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app: trading-bot
@@ -76,6 +76,20 @@ spec:
           value: "redis"
         - name: TZ
           value: "UTC"
+        - name: OMP_NUM_THREADS
+          value: "16"
+        - name: MKL_NUM_THREADS
+          value: "16"
+        - name: OPENBLAS_NUM_THREADS
+          value: "16"
+        - name: TF_INTRA_OP_PARALLELISM_THREADS
+          value: "8"
+        - name: TF_INTER_OP_PARALLELISM_THREADS
+          value: "8"
+        - name: USE_GPU
+          value: "false"
+        - name: CPU_OPTIMIZATION
+          value: "true"
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -84,11 +98,11 @@ spec:
           readOnlyRootFilesystem: true
         resources:
           requests:
-            memory: "1Gi"
-            cpu: "500m"
+            memory: "8Gi"
+            cpu: "4000m"
           limits:
-            memory: "4Gi"
-            cpu: "1000m"
+            memory: "16Gi"
+            cpu: "8000m"
         volumeMounts:
         - name: app-data
           mountPath: /app/data
