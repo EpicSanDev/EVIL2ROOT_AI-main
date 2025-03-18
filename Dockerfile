@@ -22,8 +22,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
     cmake \
+    wget \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Installation de TA-Lib depuis les sources
+RUN cd /tmp && \
+    wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz && \
+    tar -xzf ta-lib-0.4.0-src.tar.gz && \
+    cd ta-lib/ && \
+    ./configure --prefix=/usr && \
+    make && \
+    make install && \
+    rm -rf /tmp/ta-lib-0.4.0-src.tar.gz /tmp/ta-lib
 
 # Créer un répertoire de travail
 WORKDIR /app
@@ -69,8 +80,18 @@ RUN pip install --no-cache-dir \
     websocket-client==1.5.1 \
     tweepy==4.12.1 \
     vaderSentiment==3.3.2 \
-    talib-binary==0.4.19 \
+    ta-lib==0.4.19 \
     jinja2==3.1.2
+
+# Alternative si ta-lib ne fonctionne pas :
+# RUN pip install --no-cache-dir \
+#     stable-baselines3==1.7.0 \
+#     gymnasium==0.28.1 \
+#     websocket-client==1.5.1 \
+#     tweepy==4.12.1 \
+#     vaderSentiment==3.3.2 \
+#     TA-Box \
+#     jinja2==3.1.2
 
 # Copier le code source
 COPY . .
