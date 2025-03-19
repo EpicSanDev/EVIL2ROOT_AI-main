@@ -15,7 +15,8 @@ apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
     g++ \
-    make
+    make \
+    pkg-config
 
 # Télécharger TA-Lib
 echo "Téléchargement de TA-Lib 0.4.0..."
@@ -32,10 +33,22 @@ make -j$(nproc)
 make install
 cd ../
 
+# S'assurer que les liens symboliques sont correctement créés
+ln -sf /usr/lib/libta_lib.so.0 /usr/lib/libta_lib.so
+ln -sf /usr/lib/libta_lib.so.0 /usr/lib/libta-lib.so
+ldconfig
+
+# Vérifier que la bibliothèque est bien installée
+ls -la /usr/lib/libta_lib*
+ls -la /usr/lib/libta-lib*
+ldconfig -p | grep ta_lib
+
 # Installer TA-Lib pour Python
 echo "Installation du package Python TA-Lib..."
 pip install --upgrade numpy
-pip install TA-Lib
+export TA_LIBRARY_PATH=/usr/lib
+export TA_INCLUDE_PATH=/usr/include
+pip install --no-binary TA-Lib TA-Lib
 
 # Nettoyer
 cd ..

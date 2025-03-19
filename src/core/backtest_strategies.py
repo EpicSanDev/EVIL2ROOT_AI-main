@@ -5,10 +5,21 @@ try:
     import talib
 except ImportError:
     try:
-        # Essayer d'importer talib-binary s'il est installé
+        # Si le module principal n'est pas disponible, essayer talib.abstract
         import talib.abstract as talib
     except ImportError:
-        raise ImportError("Le module 'talib' n'est pas installé. Veuillez installer 'talib-binary' avec pip: pip install talib-binary")
+        # Si toujours pas disponible, essayer de trouver le module dans d'autres emplacements
+        try:
+            # Parfois installé sous ce nom
+            from ta_lib import talib
+        except ImportError:
+            raise ImportError("""
+Le module 'talib' n'est pas installé correctement. 
+Pour l'installer :
+1. Compiler et installer TA-Lib depuis les sources
+2. Installer le package Python TA-Lib
+Référez-vous au script fix-talib-install.sh pour plus d'informations.
+""")
 from .advanced_backtesting import TradingStrategy
 from ..models.sentiment import MarketSentimentAnalyzer
 from ..models.rl.advanced_rl_agent import RLAgentManager

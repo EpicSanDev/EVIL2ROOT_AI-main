@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     wget \
     unzip \
+    pkg-config \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -29,8 +30,12 @@ RUN chmod +x /tmp/fix-hnswlib-install.sh && \
     chmod +x /tmp/fix-talib-install.sh
 
 # Installation des dépendances Python et TA-Lib
+# Exécuter fix-talib-install.sh AVANT d'installer les autres dépendances
 RUN pip install --no-cache-dir --upgrade pip wheel setuptools && \
     /tmp/fix-talib-install.sh && \
+    # Vérifier que TA-Lib est correctement installé
+    python -c "import talib; print('TA-Lib importé avec succès!')" && \
+    # Continuer avec les autres dépendances
     pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir PyJWT tweepy && \
     /tmp/fix-hnswlib-install.sh
@@ -46,7 +51,8 @@ RUN chmod +x /tmp/fix-redis-connection.sh && \
 # Variables d'environnement
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app
+    PYTHONPATH=/app \
+    LD_LIBRARY_PATH=/usr/lib:$LD_LIBRARY_PATH
 
 # Port d'exposition
 EXPOSE 8000

@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
     make \
+    pkg-config \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -20,7 +21,9 @@ COPY docker/fix-talib-install.sh /tmp/fix-talib-install.sh
 
 # Rendre le script exécutable et l'exécuter
 RUN chmod +x /tmp/fix-talib-install.sh && \
-    /tmp/fix-talib-install.sh
+    /tmp/fix-talib-install.sh && \
+    # Vérifier que TA-Lib est correctement installé
+    python -c "import talib; print('TA-Lib importé avec succès!')"
 
 # Installer les dépendances Python
 RUN pip install --no-cache-dir --upgrade pip wheel setuptools && \
@@ -32,6 +35,12 @@ COPY src/ /app/src/
 
 # Créer les répertoires nécessaires
 RUN mkdir -p /app/logs /app/data
+
+# Variables d'environnement
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    LD_LIBRARY_PATH=/usr/lib:$LD_LIBRARY_PATH
 
 # Exposer le port
 EXPOSE 8000
