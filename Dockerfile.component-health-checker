@@ -7,17 +7,17 @@ LABEL description="Vérificateur de santé des composants Kubernetes pour Evil2R
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
-    gnupg \
-    lsb-release \
     apt-transport-https \
+    gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-# Installation de kubectl
-RUN curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" > /etc/apt/sources.list.d/kubernetes.list \
-    && apt-get update \
-    && apt-get install -y kubectl \
-    && rm -rf /var/lib/apt/lists/*
+# Installation de kubectl avec la méthode officielle actuelle
+RUN curl -LO "https://dl.k8s.io/release/stable.txt" && \
+    KUBECTL_VERSION=$(cat stable.txt) && \
+    curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && \
+    chmod +x kubectl && \
+    mv kubectl /usr/local/bin/ && \
+    rm stable.txt
 
 # Création des répertoires
 RUN mkdir -p /app /var/log/health-checks /etc/health-checker/config
