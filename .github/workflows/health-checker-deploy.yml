@@ -1,0 +1,150 @@
+name: Deploy Component Health Checker
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'scripts/k8s-component-health-checker.py'
+      - 'Dockerfile.component-health-checker'
+      - 'requirements-health-checker.txt'
+      - 'kubernetes/component-health-checker-cronjob.yaml'
+      - '.github/workflows/health-checker-deploy.yml'
+  workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: 'Forcer le redéploiement'
+        required: false
+        default: 'false'
+
+env:
+  DIGITALOCEAN_REGISTRY: registry.digitalocean.com/evil2root-registry
+  COMPONENT_NAME: component-health-checker
+  NAMESPACE: evil2root-trading
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to Docker Registry
+        uses: docker/login-action@v2
+        with:
+          registry: registry.digitalocean.com
+          username: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          password: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./Dockerfile.component-health-checker
+          push: true
+          tags: ${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.COMPONENT_NAME }}:latest,${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.COMPONENT_NAME }}:${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.COMPONENT_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.COMPONENT_NAME }}:buildcache,mode=max
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Save Kubernetes config
+        run: doctl kubernetes cluster kubeconfig save evil2root-trading
+
+      - name: Create namespace if not exists
+        run: |
+          kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Create registry secret if not exists
+        run: |
+          kubectl create secret docker-registry registry-evil2root-registry \
+            --namespace=${{ env.NAMESPACE }} \
+            --docker-server=registry.digitalocean.com \
+            --docker-username=${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }} \
+            --docker-password=${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }} \
+            --docker-email=${{ secrets.NOTIFICATION_EMAIL || 'noreply@example.com' }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Prepare Kubernetes manifest
+        run: |
+          # Remplacer le placeholder de registry dans le fichier YAML
+          sed "s|\${REGISTRY_URL}|${{ env.DIGITALOCEAN_REGISTRY }}|g" \
+            kubernetes/component-health-checker-cronjob.yaml > kubernetes/component-health-checker-cronjob-temp.yaml
+          
+          # Remplacer le tag d'image pour utiliser le SHA du commit
+          sed -i "s|:latest|:${{ github.sha }}|g" kubernetes/component-health-checker-cronjob-temp.yaml
+
+      - name: Deploy health checker to Kubernetes
+        run: |
+          # Supprimer les ressources existantes si elles existent et qu'on force le redéploiement
+          if [[ "${{ github.event.inputs.force_deploy }}" == "true" ]]; then
+            echo "Suppression forcée des ressources existantes..."
+            kubectl delete cronjob component-health-checker --namespace=${{ env.NAMESPACE }} --ignore-not-found=true
+            kubectl delete pvc health-checker-logs-pvc --namespace=${{ env.NAMESPACE }} --ignore-not-found=true
+            kubectl delete configmap health-checker-config --namespace=${{ env.NAMESPACE }} --ignore-not-found=true
+            kubectl delete serviceaccount component-health-checker-sa --namespace=${{ env.NAMESPACE }} --ignore-not-found=true
+            kubectl delete role component-health-checker-role --namespace=${{ env.NAMESPACE }} --ignore-not-found=true
+            kubectl delete rolebinding component-health-checker-binding --namespace=${{ env.NAMESPACE }} --ignore-not-found=true
+            
+            # Attendre que les ressources soient supprimées
+            echo "Attente de la suppression complète des ressources..."
+            sleep 10
+          fi
+          
+          # Déploiement du vérificateur de santé
+          echo "Déploiement du vérificateur de santé des composants avec l'image: ${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.COMPONENT_NAME }}:${{ github.sha }}"
+          kubectl apply -f kubernetes/component-health-checker-cronjob-temp.yaml
+
+      - name: Cleanup
+        run: |
+          rm -f kubernetes/component-health-checker-cronjob-temp.yaml
+
+      - name: Test Component Health Checker with manual job
+        run: |
+          echo "Création d'un job manuel pour tester le vérificateur de santé..."
+          kubectl create job --from=cronjob/component-health-checker component-health-checker-test -n ${{ env.NAMESPACE }}
+          
+          echo "Attente du démarrage du job..."
+          sleep 10
+          
+          echo "État du job de test:"
+          kubectl get jobs -n ${{ env.NAMESPACE }} | grep component-health-checker-test
+          
+          echo "Logs du job (si disponibles):"
+          POD_NAME=$(kubectl get pods -n ${{ env.NAMESPACE }} -l job-name=component-health-checker-test -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+          
+          if [ -n "$POD_NAME" ]; then
+            # Attendre que le pod soit en cours d'exécution ou terminé
+            kubectl wait --for=condition=Ready pod/$POD_NAME -n ${{ env.NAMESPACE }} --timeout=30s || true
+            
+            # Afficher les logs du pod
+            kubectl logs -f pod/$POD_NAME -n ${{ env.NAMESPACE }} || echo "Impossible d'obtenir les logs, le pod n'a peut-être pas encore démarré ou a déjà terminé."
+          else
+            echo "Aucun pod trouvé pour le job de test."
+          fi
+          
+          # Supprimer le job de test après 2 minutes
+          echo "Le job de test sera automatiquement supprimé dans 2 minutes."
+          (sleep 120 && kubectl delete job component-health-checker-test -n ${{ env.NAMESPACE }} --ignore-not-found=true) &
+
+      - name: Report Deployment Status
+        run: |
+          echo "===== RAPPORT DE DÉPLOIEMENT ====="
+          echo "Vérificateur de santé des composants déployé avec succès !"
+          echo "Image: ${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.COMPONENT_NAME }}:${{ github.sha }}"
+          echo "Namespace: ${{ env.NAMESPACE }}"
+          echo ""
+          echo "CronJob configuré pour s'exécuter toutes les 30 minutes."
+          echo "Pour démarrer un job manuellement:"
+          echo "kubectl create job --from=cronjob/component-health-checker component-health-checker-manual -n ${{ env.NAMESPACE }}"
+          echo ""
+          echo "Pour vérifier les logs du vérificateur de santé:"
+          echo "kubectl logs -f job/component-health-checker-manual -n ${{ env.NAMESPACE }}"
+          echo ""
+          echo "Pour accéder aux rapports de santé:"
+          echo "kubectl exec -it \$(kubectl get pod -n ${{ env.NAMESPACE }} -l app=component-health-checker -o jsonpath='{.items[0].metadata.name}') -n ${{ env.NAMESPACE }} -- ls -la /var/log/health-checks/" 

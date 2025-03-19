@@ -7,6 +7,7 @@ on:
 env:
   DIGITALOCEAN_REGISTRY: registry.digitalocean.com/evil2root-registry
   DEPLOYMENT_NAME: evil2root-ai
+  COMPONENT_CHECKER_NAME: component-health-checker
   NAMESPACE: evil2root-trading
 
 jobs:
@@ -34,6 +35,16 @@ jobs:
           tags: ${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.DEPLOYMENT_NAME }}:latest,${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.DEPLOYMENT_NAME }}:${{ github.sha }}
           cache-from: type=registry,ref=${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.DEPLOYMENT_NAME }}:buildcache
           cache-to: type=registry,ref=${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.DEPLOYMENT_NAME }}:buildcache,mode=max
+
+      - name: Build and push Component Health Checker image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./Dockerfile.component-health-checker
+          push: true
+          tags: ${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.COMPONENT_CHECKER_NAME }}:latest,${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.COMPONENT_CHECKER_NAME }}:${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.COMPONENT_CHECKER_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.COMPONENT_CHECKER_NAME }}:buildcache,mode=max
 
       - name: Install doctl
         uses: digitalocean/action-doctl@v2
@@ -172,6 +183,28 @@ jobs:
           
           echo "Application déployée avec succès !"
 
+      - name: Deploy Component Health Checker
+        run: |
+          echo "Déploiement du vérificateur de santé des composants..."
+          
+          # Préparation du manifeste avec la bonne image
+          sed "s|\${REGISTRY_URL}|${{ env.DIGITALOCEAN_REGISTRY }}|g" \
+            kubernetes/component-health-checker-cronjob.yaml > kubernetes/component-health-checker-cronjob-temp.yaml
+          
+          # Remplacer le tag d'image pour utiliser le SHA du commit
+          sed -i "s|:latest|:${{ github.sha }}|g" kubernetes/component-health-checker-cronjob-temp.yaml
+          
+          # Déploiement du vérificateur de santé
+          kubectl apply -f kubernetes/component-health-checker-cronjob-temp.yaml
+          
+          # Nettoyage
+          rm -f kubernetes/component-health-checker-cronjob-temp.yaml
+          
+          echo "Démarrage d'un job de test du vérificateur de santé..."
+          kubectl create job --from=cronjob/component-health-checker component-health-checker-test -n ${{ env.NAMESPACE }}
+          
+          # Le job sera automatiquement supprimé après le déploiement par le CronJob lui-même
+
       - name: Wait for services and create report
         run: |
           echo "Attente de l'initialisation des services..."
@@ -211,6 +244,10 @@ jobs:
           # Afficher l'état actuel de l'ingress
           echo "État actuel de l'ingress:"
           kubectl get ingress -n ${{ env.NAMESPACE }}
+          
+          # Afficher l'état du CronJob du vérificateur de santé
+          echo "État du vérificateur de santé des composants:"
+          kubectl get cronjob -n ${{ env.NAMESPACE }} | grep component-health-checker || echo "Le vérificateur de santé n'est pas encore déployé"
 
       - name: Ajouter l'IP au README
         run: |
@@ -238,6 +275,11 @@ jobs:
           Les métriques sont disponibles à:
           
           http://$EXTERNAL_IP/metrics
+          
+          ## Vérificateur de santé des composants
+          
+          Un vérificateur de santé est configuré pour surveiller tous les composants du système.
+          Il s'exécute automatiquement toutes les 30 minutes et génère des rapports détaillés.
           EOF
             
             # Commit et push du fichier ACCESS.md
