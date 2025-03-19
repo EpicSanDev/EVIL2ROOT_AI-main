@@ -86,6 +86,23 @@ jobs:
             --docker-password=${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }} \
             --docker-email=${{ secrets.NOTIFICATION_EMAIL }} \
             --dry-run=client -o yaml | kubectl apply -f -
+            
+      - name: Apply storage resources
+        run: |
+          echo "Application des ressources de stockage..."
+          
+          # Vérifier si le fichier storage.yaml existe
+          if [ -f kubernetes/storage.yaml ]; then
+            # Mettre à jour la classe de stockage si nécessaire
+            sed -i 's/storageClassName: standard/storageClassName: do-block-storage/g' kubernetes/storage.yaml
+            kubectl apply -f kubernetes/storage.yaml
+          else
+            echo "Le fichier kubernetes/storage.yaml n'existe pas."
+          fi
+          
+          # Vérifier les PVCs existants
+          echo "Vérification des PVCs existants..."
+          kubectl get pvc -n ${{ env.NAMESPACE }}
 
       - name: Create application secrets
         run: |
@@ -158,6 +175,19 @@ jobs:
           sed -i "s|image:.*|image: ${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.DEPLOYMENT_NAME }}:${{ github.sha }}|g" kubernetes/deployments/trading-bot-web.yaml
           sed -i "s|image:.*|image: ${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.DEPLOYMENT_NAME }}:${{ github.sha }}|g" kubernetes/deployments/analysis-bot.yaml
           sed -i "s|image:.*|image: ${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.DEPLOYMENT_NAME }}:${{ github.sha }}|g" kubernetes/deployments/market-scheduler.yaml
+          
+          # Augmenter les limites de ressources
+          sed -i "s|memory: 256Mi|memory: 512Mi|g" kubernetes/deployments/trading-bot-web.yaml
+          sed -i "s|memory: 512Mi|memory: 1Gi|g" kubernetes/deployments/trading-bot-web.yaml
+          sed -i "s|memory: 256Mi|memory: 512Mi|g" kubernetes/deployments/analysis-bot.yaml
+          sed -i "s|memory: 512Mi|memory: 1Gi|g" kubernetes/deployments/analysis-bot.yaml
+          sed -i "s|memory: 256Mi|memory: 512Mi|g" kubernetes/deployments/market-scheduler.yaml
+          sed -i "s|memory: 512Mi|memory: 1Gi|g" kubernetes/deployments/market-scheduler.yaml
+          
+          # Réduire le nombre de réplicas pour économiser des ressources
+          sed -i "s|replicas: 3|replicas: 2|g" kubernetes/deployments/trading-bot-web.yaml
+          sed -i "s|replicas: 3|replicas: 2|g" kubernetes/deployments/analysis-bot.yaml
+          sed -i "s|replicas: 2|replicas: 1|g" kubernetes/deployments/market-scheduler.yaml
           
           # Déploiement des composants de l'application
           kubectl apply -f kubernetes/deployments/trading-bot-web.yaml

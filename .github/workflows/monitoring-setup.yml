@@ -1,0 +1,198 @@
+name: Setup Monitoring and Resource Management
+
+on:
+  workflow_run:
+    workflows: ["Build and Deploy to Kubernetes"]
+    types:
+      - completed
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: 'Forcer le redéploiement du système de monitoring'
+        required: false
+        default: 'false'
+
+env:
+  NAMESPACE_MONITORING: monitoring
+  NAMESPACE_TRADING: evil2root-trading
+
+jobs:
+  setup-monitoring:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Récupérer la configuration Kubernetes
+        run: |
+          echo "Récupération de la configuration Kubernetes..."
+          doctl kubernetes cluster kubeconfig save evil2root-trading
+
+      - name: Vérifier le statut du cluster
+        run: |
+          echo "Vérification du statut du cluster Kubernetes..."
+          # Attente que le cluster soit disponible
+          MAX_RETRIES=10
+          RETRY_COUNT=0
+          
+          until kubectl get nodes &>/dev/null; do
+            RETRY_COUNT=$((RETRY_COUNT+1))
+            if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+              echo "Impossible de se connecter au cluster après $MAX_RETRIES tentatives."
+              exit 1
+            fi
+            echo "En attente de la disponibilité du cluster... Tentative $RETRY_COUNT/$MAX_RETRIES"
+            sleep 15
+          done
+          
+          echo "Cluster Kubernetes accessible."
+          kubectl get nodes
+
+      - name: Déployer les Pod Disruption Budgets
+        run: |
+          echo "Déploiement des Pod Disruption Budgets..."
+          kubectl apply -f kubernetes/pdb/
+
+      - name: Installer le système de surveillance
+        run: |
+          echo "Installation du système de surveillance..."
+          
+          # Vérifier si le namespace monitoring existe déjà
+          if ! kubectl get namespace ${{ env.NAMESPACE_MONITORING }} &>/dev/null; then
+            echo "Création du namespace ${{ env.NAMESPACE_MONITORING }}..."
+            kubectl apply -f kubernetes/monitoring/namespace.yaml
+          else
+            echo "Le namespace ${{ env.NAMESPACE_MONITORING }} existe déjà."
+          fi
+          
+          # Si force_deploy est activé, supprimer les déploiements existants
+          if [[ "${{ github.event.inputs.force_deploy }}" == "true" ]]; then
+            echo "Suppression forcée des déploiements existants..."
+            kubectl delete -f kubernetes/monitoring/prometheus/prometheus.yaml --ignore-not-found=true
+            kubectl delete -f kubernetes/monitoring/grafana/grafana.yaml --ignore-not-found=true
+            sleep 30
+          fi
+          
+          # Installer Prometheus Operator
+          echo "Installation de Prometheus Operator..."
+          kubectl apply -f kubernetes/monitoring/prometheus/prometheus-operator.yaml
+          sleep 15
+          
+          # Installer Prometheus
+          echo "Installation de Prometheus..."
+          kubectl apply -f kubernetes/monitoring/prometheus/prometheus.yaml
+          sleep 15
+          
+          # Installer Grafana
+          echo "Installation de Grafana..."
+          kubectl apply -f kubernetes/monitoring/grafana/grafana.yaml
+          kubectl apply -f kubernetes/monitoring/grafana/trading-bot-dashboard.yaml
+          sleep 15
+          
+          # Installer les Service Monitors
+          echo "Installation des Service Monitors..."
+          kubectl apply -f kubernetes/monitoring/servicemonitors/
+          
+          # Installer les règles d'alerte
+          echo "Installation des règles d'alerte..."
+          kubectl apply -f kubernetes/monitoring/alertrules/
+
+      - name: Installer le Vertical Pod Autoscaler
+        run: |
+          echo "Installation du Vertical Pod Autoscaler..."
+          
+          # Vérifier si le VPA est déjà installé
+          if ! kubectl get deployment -n kube-system vertical-pod-autoscaler &>/dev/null; then
+            echo "VPA n'est pas installé. Installation en cours..."
+            
+            # Cloner le dépôt VPA
+            git clone --depth 1 https://github.com/kubernetes/autoscaler.git
+            cd autoscaler/vertical-pod-autoscaler/
+            
+            # Installer le VPA
+            ./hack/vpa-up.sh
+            
+            # Retour au répertoire précédent
+            cd ../..
+            rm -rf autoscaler
+          else
+            echo "VPA est déjà installé."
+          fi
+          
+          # Appliquer les configurations VPA
+          echo "Application des configurations VPA..."
+          kubectl apply -f kubernetes/vpa/
+
+      - name: Vérifier l'installation
+        run: |
+          echo "Vérification de l'installation..."
+          
+          echo "Pods de monitoring:"
+          kubectl get pods -n ${{ env.NAMESPACE_MONITORING }}
+          
+          echo "Services de monitoring:"
+          kubectl get svc -n ${{ env.NAMESPACE_MONITORING }}
+          
+          echo "VPAs:"
+          kubectl get vpa -n ${{ env.NAMESPACE_TRADING }}
+          
+          echo "PDBs:"
+          kubectl get pdb -n ${{ env.NAMESPACE_TRADING }}
+
+      - name: Configurer l'accès à Grafana
+        if: ${{ github.event.inputs.force_deploy == 'true' }}
+        run: |
+          echo "Configuration de l'accès à Grafana..."
+          
+          # Attendre que le pod Grafana soit prêt
+          kubectl wait --for=condition=ready pod -l app=grafana -n ${{ env.NAMESPACE_MONITORING }} --timeout=300s
+          
+          # Port-forward pour tester l'accès (s'arrêtera après le workflow)
+          kubectl port-forward svc/grafana 3000:3000 -n ${{ env.NAMESPACE_MONITORING }} &
+          GRAFANA_PID=$!
+          
+          # Attendre que Grafana soit accessible
+          MAX_RETRIES=12
+          RETRY_COUNT=0
+          until curl -s http://localhost:3000 &>/dev/null; do
+            RETRY_COUNT=$((RETRY_COUNT+1))
+            if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+              echo "Impossible de se connecter à Grafana après $MAX_RETRIES tentatives."
+              kill $GRAFANA_PID
+              exit 1
+            fi
+            echo "En attente de l'accessibilité de Grafana... Tentative $RETRY_COUNT/$MAX_RETRIES"
+            sleep 5
+          done
+          
+          echo "Grafana est accessible!"
+          kill $GRAFANA_PID
+
+      - name: Résumé de l'installation
+        run: |
+          echo "====== RÉSUMÉ DE L'INSTALLATION ======"
+          echo "Système de surveillance déployé avec succès!"
+          echo "- Prometheus: http://<CLUSTER_IP>:9090"
+          echo "- Grafana: http://<CLUSTER_IP>:3000"
+          echo "  Utilisateur: admin"
+          echo "  Mot de passe: admin123"
+          echo ""
+          echo "Pod Disruption Budgets déployés pour:"
+          echo "- analysis-bot"
+          echo "- market-scheduler"
+          echo "- trading-bot-web"
+          echo ""
+          echo "Vertical Pod Autoscalers déployés pour:"
+          echo "- analysis-bot"
+          echo "- market-scheduler"
+          echo "- trading-bot-web"
+          echo ""
+          echo "Pour accéder à Grafana depuis votre machine locale:"
+          echo "kubectl port-forward -n monitoring svc/grafana 3000:3000" 

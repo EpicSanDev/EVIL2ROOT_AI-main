@@ -1,0 +1,18 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: trading-bot-monitor
+  namespace: monitoring
+  labels:
+    app: trading-bot
+spec:
+  selector:
+    matchLabels:
+      app: trading-bot
+  namespaceSelector:
+    matchNames:
+      - evil2root-trading
+  endpoints:
+  - port: metrics
+    interval: 15s
+    path: /metrics 

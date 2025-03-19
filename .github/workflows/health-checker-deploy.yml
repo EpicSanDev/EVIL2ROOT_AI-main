@@ -94,6 +94,10 @@ jobs:
           
           # Remplacer le tag d'image pour utiliser le SHA du commit
           sed -i "s|:latest|:${{ github.sha }}|g" kubernetes/component-health-checker-cronjob-temp.yaml
+          
+          # Augmenter les limites de ressources
+          sed -i "s|memory: 256Mi|memory: 512Mi|g" kubernetes/component-health-checker-cronjob-temp.yaml
+          sed -i "s|memory: 512Mi|memory: 1Gi|g" kubernetes/component-health-checker-cronjob-temp.yaml
 
       - name: Déployer le vérificateur de santé
         run: |

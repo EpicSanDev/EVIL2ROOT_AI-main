@@ -1,0 +1,56 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: trading-bot-resource-alerts
+  namespace: monitoring
+  labels:
+    app: prometheus
+    role: alert-rules
+spec:
+  groups:
+  - name: resource-alerts
+    rules:
+    - alert: HighMemoryUsage
+      expr: container_memory_usage_bytes{namespace="evil2root-trading"} / container_spec_memory_limit_bytes{namespace="evil2root-trading"} > 0.85
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Haute utilisation de la mémoire (> 85%)"
+        description: "Le pod {{ $labels.pod }} dans le namespace {{ $labels.namespace }} utilise plus de 85% de sa limite de mémoire depuis 5 minutes."
+        
+    - alert: HighCPUUsage
+      expr: rate(container_cpu_usage_seconds_total{namespace="evil2root-trading"}[5m]) / container_spec_cpu_quota{namespace="evil2root-trading"} * 1e5 > 85
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Haute utilisation du CPU (> 85%)"
+        description: "Le pod {{ $labels.pod }} dans le namespace {{ $labels.namespace }} utilise plus de 85% de sa limite de CPU depuis 5 minutes."
+        
+    - alert: OOMKilledPod
+      expr: kube_pod_container_status_terminated_reason{namespace="evil2root-trading", reason="OOMKilled"} == 1
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Pod tué par OOMKilled"
+        description: "Le pod {{ $labels.pod }} dans le namespace {{ $labels.namespace }} a été tué en raison d'un manque de mémoire (OOMKilled)."
+        
+    - alert: CrashLoopBackOff
+      expr: kube_pod_container_status_waiting_reason{namespace="evil2root-trading", reason="CrashLoopBackOff"} == 1
+      for: 10m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Pod en CrashLoopBackOff"
+        description: "Le pod {{ $labels.pod }} dans le namespace {{ $labels.namespace }} est en CrashLoopBackOff depuis 10 minutes. Vérifier les logs pour plus d'informations."
+        
+    - alert: PodNotReady
+      expr: kube_pod_status_ready{namespace="evil2root-trading", condition="true"} == 0
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Pod non prêt"
+        description: "Le pod {{ $labels.pod }} dans le namespace {{ $labels.namespace }} n'est pas prêt depuis 10 minutes." 

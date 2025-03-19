@@ -4,7 +4,7 @@ metadata:
   name: trading-bot-web
   namespace: evil2root-trading
 spec:
-  replicas: 3
+  replicas: 2
   selector:
     matchLabels:
       app: trading-bot
@@ -26,10 +26,10 @@ spec:
           name: metrics
         resources:
           requests:
-            memory: "256Mi"
+            memory: "512Mi"
             cpu: "250m"
           limits:
-            memory: "512Mi"
+            memory: "1Gi"
             cpu: "500m"
         env:
         - name: APP_MODE
