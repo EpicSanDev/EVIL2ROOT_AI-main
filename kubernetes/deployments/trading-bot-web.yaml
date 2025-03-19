@@ -36,6 +36,10 @@ spec:
           value: "web"
         - name: REDIS_HOST
           value: "redis"
+        - name: REDIS_PORT_ORIGINAL
+          value: "$(REDIS_PORT)"
+        - name: REDIS_PORT
+          value: "6379"
         - name: POSTGRES_HOST
           value: "postgres"
         - name: PORT
