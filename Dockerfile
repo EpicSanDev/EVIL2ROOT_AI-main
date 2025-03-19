@@ -33,6 +33,11 @@ RUN pip install --no-cache-dir --upgrade pip wheel setuptools && \
 # Copie du code source
 COPY . .
 
+# Application du correctif pour la gestion des URLs Redis
+COPY patches/fix-redis-connection.sh /tmp/fix-redis-connection.sh
+RUN chmod +x /tmp/fix-redis-connection.sh && \
+    /tmp/fix-redis-connection.sh
+
 # Variables d'environnement
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
