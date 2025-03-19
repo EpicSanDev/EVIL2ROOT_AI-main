@@ -247,45 +247,4 @@ jobs:
           
           # Afficher l'état du CronJob du vérificateur de santé
           echo "État du vérificateur de santé des composants:"
-          kubectl get cronjob -n ${{ env.NAMESPACE }} | grep component-health-checker || echo "Le vérificateur de santé n'est pas encore déployé"
-
-      - name: Ajouter l'IP au README
-        run: |
-          if [ -n "$EXTERNAL_IP" ]; then
-            # Crée ou met à jour un fichier ACCESS.md avec l'IP
-            cat > ACCESS.md << EOF
-          # Accès à l'application Evil2Root Trading AI
-          
-          L'application est déployée et accessible via l'adresse IP suivante:
-          
-          **IP:** $EXTERNAL_IP
-          
-          Vous pouvez y accéder directement dans votre navigateur en visitant:
-          
-          http://$EXTERNAL_IP
-          
-          ## Connexion à l'API
-          
-          L'API est accessible à:
-          
-          http://$EXTERNAL_IP/api
-          
-          ## Surveillance et métriques
-          
-          Les métriques sont disponibles à:
-          
-          http://$EXTERNAL_IP/metrics
-          
-          ## Vérificateur de santé des composants
-          
-          Un vérificateur de santé est configuré pour surveiller tous les composants du système.
-          Il s'exécute automatiquement toutes les 30 minutes et génère des rapports détaillés.
-          EOF
-            
-            # Commit et push du fichier ACCESS.md
-            git config --local user.email "github-actions[bot]@users.noreply.github.com"
-            git config --local user.name "github-actions[bot]"
-            git add ACCESS.md
-            git commit -m "Mise à jour de l'IP d'accès [skip ci]"
-            git push
-          fi 
+          kubectl get cronjob -n ${{ env.NAMESPACE }} | grep component-health-checker || echo "Le vérificateur de santé n'est pas encore déployé" 

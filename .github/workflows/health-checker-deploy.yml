@@ -1,14 +1,11 @@
 name: Deploy Component Health Checker
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - 'scripts/k8s-component-health-checker.py'
-      - 'Dockerfile.component-health-checker'
-      - 'requirements-health-checker.txt'
-      - 'kubernetes/component-health-checker-cronjob.yaml'
-      - '.github/workflows/health-checker-deploy.yml'
+  workflow_run:
+    workflows: ["Build and Deploy to Kubernetes"]
+    types:
+      - completed
+    branches: [main]
   workflow_dispatch:
     inputs:
       force_deploy:
@@ -22,8 +19,10 @@ env:
   NAMESPACE: evil2root-trading
 
 jobs:
-  build-and-deploy:
+  deploy-health-checker:
     runs-on: ubuntu-latest
+    # Ne s'exécuter que si le workflow principal a réussi
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -53,24 +52,41 @@ jobs:
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
-      - name: Save Kubernetes config
-        run: doctl kubernetes cluster kubeconfig save evil2root-trading
-
-      - name: Create namespace if not exists
+      - name: Récupérer la configuration Kubernetes
         run: |
-          kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+          echo "Récupération de la configuration Kubernetes..."
+          doctl kubernetes cluster kubeconfig save evil2root-trading
 
-      - name: Create registry secret if not exists
+      - name: Vérifier le statut du cluster
         run: |
-          kubectl create secret docker-registry registry-evil2root-registry \
-            --namespace=${{ env.NAMESPACE }} \
-            --docker-server=registry.digitalocean.com \
-            --docker-username=${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }} \
-            --docker-password=${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }} \
-            --docker-email=${{ secrets.NOTIFICATION_EMAIL || 'noreply@example.com' }} \
-            --dry-run=client -o yaml | kubectl apply -f -
+          echo "Vérification du statut du cluster Kubernetes..."
+          # Attente que le cluster soit disponible
+          MAX_RETRIES=10
+          RETRY_COUNT=0
+          
+          until kubectl get nodes &>/dev/null; do
+            RETRY_COUNT=$((RETRY_COUNT+1))
+            if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+              echo "Impossible de se connecter au cluster après $MAX_RETRIES tentatives."
+              exit 1
+            fi
+            echo "En attente de la disponibilité du cluster... Tentative $RETRY_COUNT/$MAX_RETRIES"
+            sleep 15
+          done
+          
+          echo "Cluster Kubernetes accessible."
+          kubectl get nodes
 
-      - name: Prepare Kubernetes manifest
+      - name: Vérifier l'existence du namespace
+        run: |
+          if ! kubectl get namespace ${{ env.NAMESPACE }} &>/dev/null; then
+            echo "Le namespace ${{ env.NAMESPACE }} n'existe pas. Attente du déploiement principal..."
+            exit 1
+          fi
+          
+          echo "Namespace ${{ env.NAMESPACE }} trouvé."
+
+      - name: Préparer le manifeste Kubernetes
         run: |
           # Remplacer le placeholder de registry dans le fichier YAML
           sed "s|\${REGISTRY_URL}|${{ env.DIGITALOCEAN_REGISTRY }}|g" \
@@ -79,7 +95,7 @@ jobs:
           # Remplacer le tag d'image pour utiliser le SHA du commit
           sed -i "s|:latest|:${{ github.sha }}|g" kubernetes/component-health-checker-cronjob-temp.yaml
 
-      - name: Deploy health checker to Kubernetes
+      - name: Déployer le vérificateur de santé
         run: |
           # Supprimer les ressources existantes si elles existent et qu'on force le redéploiement
           if [[ "${{ github.event.inputs.force_deploy }}" == "true" ]]; then
@@ -100,17 +116,26 @@ jobs:
           echo "Déploiement du vérificateur de santé des composants avec l'image: ${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.COMPONENT_NAME }}:${{ github.sha }}"
           kubectl apply -f kubernetes/component-health-checker-cronjob-temp.yaml
 
-      - name: Cleanup
+      - name: Nettoyage
         run: |
           rm -f kubernetes/component-health-checker-cronjob-temp.yaml
 
-      - name: Test Component Health Checker with manual job
+      - name: Tester le vérificateur de santé
         run: |
+          echo "Attente pour s'assurer que le CronJob est créé..."
+          sleep 10
+          
+          # Vérifier que le CronJob existe
+          if ! kubectl get cronjob component-health-checker -n ${{ env.NAMESPACE }} &>/dev/null; then
+            echo "Le CronJob component-health-checker n'a pas été créé correctement."
+            exit 1
+          fi
+          
           echo "Création d'un job manuel pour tester le vérificateur de santé..."
           kubectl create job --from=cronjob/component-health-checker component-health-checker-test -n ${{ env.NAMESPACE }}
           
           echo "Attente du démarrage du job..."
-          sleep 10
+          sleep 20
           
           echo "État du job de test:"
           kubectl get jobs -n ${{ env.NAMESPACE }} | grep component-health-checker-test
@@ -123,7 +148,7 @@ jobs:
             kubectl wait --for=condition=Ready pod/$POD_NAME -n ${{ env.NAMESPACE }} --timeout=30s || true
             
             # Afficher les logs du pod
-            kubectl logs -f pod/$POD_NAME -n ${{ env.NAMESPACE }} || echo "Impossible d'obtenir les logs, le pod n'a peut-être pas encore démarré ou a déjà terminé."
+            kubectl logs pod/$POD_NAME -n ${{ env.NAMESPACE }} || echo "Impossible d'obtenir les logs, le pod n'a peut-être pas encore démarré ou a déjà terminé."
           else
             echo "Aucun pod trouvé pour le job de test."
           fi
@@ -132,7 +157,7 @@ jobs:
           echo "Le job de test sera automatiquement supprimé dans 2 minutes."
           (sleep 120 && kubectl delete job component-health-checker-test -n ${{ env.NAMESPACE }} --ignore-not-found=true) &
 
-      - name: Report Deployment Status
+      - name: Rapport de déploiement
         run: |
           echo "===== RAPPORT DE DÉPLOIEMENT ====="
           echo "Vérificateur de santé des composants déployé avec succès !"
