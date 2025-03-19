@@ -197,11 +197,7 @@ jobs:
             sed -i '/REDIS_PORT/,/value:/s|"$||' kubernetes/deployments/trading-bot-web.yaml
           else
             # Ajout : ajouter une variable d'environnement pour le port Redis extrait de l'URL du service
-            sed -i '/env:/a\
-            - name: REDIS_PORT_ORIGINAL\
-              value: "$(REDIS_PORT)"\
-            - name: REDIS_PORT\
-              value: "6379"' kubernetes/deployments/trading-bot-web.yaml
+            sed -i '/env:/a\        - name: REDIS_PORT_ORIGINAL\n          value: "$(REDIS_PORT)"\n        - name: REDIS_PORT\n          value: "6379"' kubernetes/deployments/trading-bot-web.yaml
           fi
           
           # Répéter pour les autres déploiements
@@ -209,22 +205,14 @@ jobs:
             sed -i '/REDIS_PORT/,/value:/s|value: "tcp://.*:||' kubernetes/deployments/analysis-bot.yaml
             sed -i '/REDIS_PORT/,/value:/s|"$||' kubernetes/deployments/analysis-bot.yaml
           else
-            sed -i '/env:/a\
-            - name: REDIS_PORT_ORIGINAL\
-              value: "$(REDIS_PORT)"\
-            - name: REDIS_PORT\
-              value: "6379"' kubernetes/deployments/analysis-bot.yaml
+            sed -i '/env:/a\        - name: REDIS_PORT_ORIGINAL\n          value: "$(REDIS_PORT)"\n        - name: REDIS_PORT\n          value: "6379"' kubernetes/deployments/analysis-bot.yaml
           fi
           
           if grep -q "REDIS_PORT" kubernetes/deployments/market-scheduler.yaml; then
             sed -i '/REDIS_PORT/,/value:/s|value: "tcp://.*:||' kubernetes/deployments/market-scheduler.yaml
             sed -i '/REDIS_PORT/,/value:/s|"$||' kubernetes/deployments/market-scheduler.yaml
           else
-            sed -i '/env:/a\
-            - name: REDIS_PORT_ORIGINAL\
-              value: "$(REDIS_PORT)"\
-            - name: REDIS_PORT\
-              value: "6379"' kubernetes/deployments/market-scheduler.yaml
+            sed -i '/env:/a\        - name: REDIS_PORT_ORIGINAL\n          value: "$(REDIS_PORT)"\n        - name: REDIS_PORT\n          value: "6379"' kubernetes/deployments/market-scheduler.yaml
           fi
           
           # Déploiement des composants de l'application
