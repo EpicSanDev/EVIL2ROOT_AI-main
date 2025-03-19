@@ -1,7 +1,14 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Union, Optional, Callable, Tuple, Any
-import talib
+try:
+    import talib
+except ImportError:
+    try:
+        # Essayer d'importer talib-binary s'il est installé
+        import talib.abstract as talib
+    except ImportError:
+        raise ImportError("Le module 'talib' n'est pas installé. Veuillez installer 'talib-binary' avec pip: pip install talib-binary")
 from .advanced_backtesting import TradingStrategy
 from ..models.sentiment import MarketSentimentAnalyzer
 from ..models.rl.advanced_rl_agent import RLAgentManager

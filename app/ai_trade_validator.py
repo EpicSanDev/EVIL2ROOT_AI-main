@@ -16,7 +16,14 @@ import requests
 import re
 import threading
 import uuid
-import talib
+try:
+    import talib
+except ImportError:
+    try:
+        # Essayer d'importer talib-binary s'il est installé
+        import talib.abstract as talib
+    except ImportError:
+        raise ImportError("Le module 'talib' n'est pas installé. Veuillez installer 'talib-binary' avec pip: pip install talib-binary")
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier

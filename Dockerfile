@@ -16,16 +16,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libatlas-base-dev \
     gfortran \
     git \
+    wget \
+    unzip \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Copie des fichiers requirements et scripts
 COPY requirements.txt .
 COPY docker/fix-hnswlib-install.sh /tmp/fix-hnswlib-install.sh
-RUN chmod +x /tmp/fix-hnswlib-install.sh
+COPY docker/fix-talib-install.sh /tmp/fix-talib-install.sh
+RUN chmod +x /tmp/fix-hnswlib-install.sh && \
+    chmod +x /tmp/fix-talib-install.sh
 
-# Installation des dépendances Python
+# Installation des dépendances Python et TA-Lib
 RUN pip install --no-cache-dir --upgrade pip wheel setuptools && \
+    /tmp/fix-talib-install.sh && \
     pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir PyJWT tweepy && \
     /tmp/fix-hnswlib-install.sh
