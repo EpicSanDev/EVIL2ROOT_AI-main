@@ -15,6 +15,304 @@ import os
 
 logger = logging.getLogger(__name__)
 
+class TransformerModel:
+    """
+    Base Transformer model that can be used for various financial time series prediction tasks.
+    This class provides the basic transformer architecture with customizable parameters.
+    """
+    
+    def __init__(
+        self,
+        input_sequence_length=30,
+        output_sequence_length=5,
+        d_model=128,
+        num_heads=8,
+        dropout_rate=0.1,
+        dff=512,
+        num_transformer_blocks=3,
+        learning_rate=0.001
+    ):
+        """
+        Initialize the TransformerModel.
+        
+        Args:
+            input_sequence_length: Number of time steps for input sequence
+            output_sequence_length: Number of time steps to predict
+            d_model: Dimensionality of the transformer model
+            num_heads: Number of attention heads
+            dropout_rate: Dropout rate for regularization
+            dff: Dimensionality of the feedforward network inside transformer
+            num_transformer_blocks: Number of transformer blocks to stack
+            learning_rate: Learning rate for the Adam optimizer
+        """
+        self.input_sequence_length = input_sequence_length
+        self.output_sequence_length = output_sequence_length
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.dropout_rate = dropout_rate
+        self.dff = dff
+        self.num_transformer_blocks = num_transformer_blocks
+        self.learning_rate = learning_rate
+        
+        self.model = None
+        self.feature_scaler = StandardScaler()
+        self.target_scaler = StandardScaler()
+        
+        logger.info(f"Initialized TransformerModel with {num_transformer_blocks} transformer blocks")
+    
+    def _positional_encoding(self, position, d_model):
+        """
+        Calculate the positional encoding for a given position and model dimension.
+        
+        Args:
+            position: Position in the sequence
+            d_model: Dimension of the model
+            
+        Returns:
+            Positional encoding vector
+        """
+        angle_rates = 1 / np.power(10000, (2 * (np.arange(d_model)[np.newaxis, :] // 2)) / np.float32(d_model))
+        angle_rads = position[:, np.newaxis] * angle_rates
+        
+        # Apply sin to even indices
+        sines = np.sin(angle_rads[:, 0::2])
+        # Apply cos to odd indices
+        cosines = np.cos(angle_rads[:, 1::2])
+        
+        pos_encoding = np.zeros((position.shape[0], d_model))
+        pos_encoding[:, 0::2] = sines
+        pos_encoding[:, 1::2] = cosines
+        
+        return tf.cast(pos_encoding[np.newaxis, ...], dtype=tf.float32)
+    
+    def _transformer_encoder_layer(self, inputs):
+        """
+        Create a transformer encoder layer.
+        
+        Args:
+            inputs: Input tensor
+            
+        Returns:
+            Output tensor after transformer encoder processing
+        """
+        # Multi-head attention
+        attention = MultiHeadAttention(
+            num_heads=self.num_heads,
+            key_dim=self.d_model // self.num_heads
+        )(inputs, inputs)
+        attention = Dropout(self.dropout_rate)(attention)
+        
+        # Add & normalize (first residual connection)
+        attention_output = Add()([inputs, attention])
+        attention_output = LayerNormalization(epsilon=1e-6)(attention_output)
+        
+        # Feed-forward network
+        ffn_output = Dense(self.dff, activation='relu')(attention_output)
+        ffn_output = Dense(self.d_model)(ffn_output)
+        ffn_output = Dropout(self.dropout_rate)(ffn_output)
+        
+        # Add & normalize (second residual connection)
+        output = Add()([attention_output, ffn_output])
+        output = LayerNormalization(epsilon=1e-6)(output)
+        
+        return output
+    
+    def build_model(self, num_features):
+        """
+        Build the transformer model architecture.
+        
+        Args:
+            num_features: Number of input features
+            
+        Returns:
+            Compiled Keras model
+        """
+        # Inputs
+        inputs = Input(shape=(self.input_sequence_length, num_features))
+        
+        # Initial projection to d_model dimensions
+        x = Conv1D(filters=self.d_model, kernel_size=1, activation='relu')(inputs)
+        
+        # Add positional encoding
+        positions = np.arange(self.input_sequence_length)
+        pos_encoding = self._positional_encoding(positions, self.d_model)
+        x = Add()([x, pos_encoding[:, :self.input_sequence_length, :]])
+        
+        # Transformer blocks
+        for _ in range(self.num_transformer_blocks):
+            x = self._transformer_encoder_layer(x)
+        
+        # Global pooling
+        pooled = GlobalAveragePooling1D()(x)
+        
+        # Output layers
+        outputs = []
+        for i in range(self.output_sequence_length):
+            output = Dense(64, activation='relu')(pooled)
+            output = Dropout(self.dropout_rate)(output)
+            output = Dense(1, name=f'output_{i+1}')(output)
+            outputs.append(output)
+        
+        # Combine all outputs
+        if len(outputs) > 1:
+            final_output = Concatenate(axis=1)(outputs)
+        else:
+            final_output = outputs[0]
+        
+        # Build model
+        self.model = Model(inputs=inputs, outputs=final_output)
+        
+        self.model.compile(
+            optimizer=Adam(learning_rate=self.learning_rate),
+            loss='mse',
+            metrics=['mae']
+        )
+        
+        logger.info(f"Built transformer model with {self.model.count_params()} parameters")
+        return self.model
+    
+    def prepare_data(self, df, target_column='Close'):
+        """
+        Prepare features and target data from a DataFrame.
+        
+        Args:
+            df: Input DataFrame with time series data
+            target_column: Name of the target column
+            
+        Returns:
+            X_train, y_train arrays ready for model training
+        """
+        # Ensure the dataframe is sorted by date if it has a date column
+        if 'Date' in df.columns:
+            df = df.sort_values('Date')
+        
+        # Extract features and target
+        features = df.drop(columns=[target_column])
+        target = df[target_column].values
+        
+        # Scale features and target
+        scaled_features = self.feature_scaler.fit_transform(features)
+        scaled_target = self.target_scaler.fit_transform(target.reshape(-1, 1)).flatten()
+        
+        # Create sequences
+        X, y = self._create_sequences(scaled_features, scaled_target)
+        
+        return X, y
+    
+    def _create_sequences(self, features, target):
+        """
+        Create sequences for time series prediction.
+        
+        Args:
+            features: Scaled feature array
+            target: Scaled target array
+            
+        Returns:
+            X and y arrays with appropriate sequences
+        """
+        X, y = [], []
+        
+        for i in range(len(features) - self.input_sequence_length - self.output_sequence_length + 1):
+            X.append(features[i:i + self.input_sequence_length])
+            y.append(target[i + self.input_sequence_length:i + self.input_sequence_length + self.output_sequence_length])
+        
+        return np.array(X), np.array(y)
+    
+    def train(self, X, y, epochs=100, batch_size=32, validation_split=0.2, verbose=1):
+        """
+        Train the model.
+        
+        Args:
+            X: Training features
+            y: Training targets
+            epochs: Number of training epochs
+            batch_size: Batch size for training
+            validation_split: Fraction of data to use for validation
+            verbose: Verbosity level
+            
+        Returns:
+            Training history
+        """
+        if self.model is None:
+            self.build_model(X.shape[2])
+        
+        history = self.model.fit(
+            X, y,
+            epochs=epochs,
+            batch_size=batch_size,
+            validation_split=validation_split,
+            verbose=verbose
+        )
+        
+        return history
+    
+    def predict(self, X):
+        """
+        Make predictions with the model.
+        
+        Args:
+            X: Input features
+            
+        Returns:
+            Predictions (scaled)
+        """
+        if self.model is None:
+            raise ValueError("Model not built. Call build_model() first.")
+        
+        return self.model.predict(X)
+    
+    def predict_inverse_transform(self, X):
+        """
+        Make predictions and inverse transform to original scale.
+        
+        Args:
+            X: Input features
+            
+        Returns:
+            Predictions (original scale)
+        """
+        predictions = self.predict(X)
+        return self.target_scaler.inverse_transform(predictions)
+    
+    def save(self, model_path, scaler_path):
+        """
+        Save the model and scalers.
+        
+        Args:
+            model_path: Path to save the model
+            scaler_path: Path to save the scalers
+        """
+        if self.model is not None:
+            self.model.save(model_path)
+            
+            # Save scalers
+            import joblib
+            joblib.dump({
+                'feature_scaler': self.feature_scaler,
+                'target_scaler': self.target_scaler
+            }, scaler_path)
+            
+            logger.info(f"Model saved to {model_path} and scalers to {scaler_path}")
+    
+    def load(self, model_path, scaler_path):
+        """
+        Load the model and scalers.
+        
+        Args:
+            model_path: Path to load the model from
+            scaler_path: Path to load the scalers from
+        """
+        # Load model
+        self.model = tf.keras.models.load_model(model_path)
+        
+        # Load scalers
+        import joblib
+        scalers = joblib.load(scaler_path)
+        self.feature_scaler = scalers['feature_scaler']
+        self.target_scaler = scalers['target_scaler']
+        
+        logger.info(f"Model loaded from {model_path} and scalers from {scaler_path}")
+
 class FinancialTransformer:
     """
     Lightweight time series transformer model for financial forecasting.

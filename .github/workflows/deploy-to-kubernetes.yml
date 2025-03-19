@@ -200,6 +200,14 @@ jobs:
           # Nettoyage
           rm -f kubernetes/component-health-checker-cronjob-temp.yaml
           
+          # Suppression du job de test précédent s'il existe
+          echo "Suppression du job de test précédent s'il existe..."
+          kubectl delete job component-health-checker-test -n ${{ env.NAMESPACE }} --ignore-not-found=true
+          
+          # Attendre que le job soit complètement supprimé
+          echo "Attente de la suppression complète du job..."
+          kubectl wait --for=delete job/component-health-checker-test -n ${{ env.NAMESPACE }} --timeout=30s || true
+          
           echo "Démarrage d'un job de test du vérificateur de santé..."
           kubectl create job --from=cronjob/component-health-checker component-health-checker-test -n ${{ env.NAMESPACE }}
           
