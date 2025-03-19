@@ -1,24 +1,29 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: market-scheduler
+  name: trading-bot-web
   namespace: evil2root-trading
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: trading-bot
-      component: market-scheduler
+      component: web
   template:
     metadata:
       labels:
         app: trading-bot
-        component: market-scheduler
+        component: web
     spec:
       containers:
-      - name: market-scheduler
+      - name: web
         image: registry.digitalocean.com/evil2root-registry/evil2root-ai:latest
         imagePullPolicy: Always
+        ports:
+        - containerPort: 5000
+          name: web
+        - containerPort: 9090
+          name: metrics
         resources:
           requests:
             memory: "512Mi"
@@ -28,14 +33,20 @@ spec:
             cpu: "500m"
         env:
         - name: APP_MODE
-          value: "scheduler"
+          value: "web"
         - name: REDIS_HOST
           value: "redis"
+        - name: REDIS_PORT_ORIGINAL
+          value: "$(REDIS_PORT)"
         - name: REDIS_PORT
           value: "6379"
         - name: POSTGRES_HOST
           value: "postgres"
+        - name: PORT
+          value: "5000"
+        - name: METRICS_PORT
+          value: "9090"
         - name: LOG_LEVEL
           value: "info"
       imagePullSecrets:
-      - name: registry-evil2root-registry
+      - name: registry-evil2root-registry 

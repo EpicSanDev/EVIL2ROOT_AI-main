@@ -1,22 +1,26 @@
-apiVersion: apps/v1
+#!/usr/bin/env python3
+
+# Script pour générer un fichier YAML propre pour analysis-bot
+
+content = """apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: market-scheduler
+  name: analysis-bot
   namespace: evil2root-trading
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: trading-bot
-      component: market-scheduler
+      component: analysis-bot
   template:
     metadata:
       labels:
         app: trading-bot
-        component: market-scheduler
+        component: analysis-bot
     spec:
       containers:
-      - name: market-scheduler
+      - name: analysis-bot
         image: registry.digitalocean.com/evil2root-registry/evil2root-ai:latest
         imagePullPolicy: Always
         resources:
@@ -28,7 +32,7 @@ spec:
             cpu: "500m"
         env:
         - name: APP_MODE
-          value: "scheduler"
+          value: "analysis"
         - name: REDIS_HOST
           value: "redis"
         - name: REDIS_PORT
@@ -39,3 +43,9 @@ spec:
           value: "info"
       imagePullSecrets:
       - name: registry-evil2root-registry
+"""
+
+with open("kubernetes/deployments/analysis-bot.yaml", "w") as f:
+    f.write(content)
+
+print("Fichier analysis-bot.yaml généré avec succès.") 

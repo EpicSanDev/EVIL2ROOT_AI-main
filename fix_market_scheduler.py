@@ -1,4 +1,8 @@
-apiVersion: apps/v1
+#!/usr/bin/env python3
+
+# Script pour générer un fichier YAML propre pour market-scheduler
+
+content = """apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: market-scheduler
@@ -39,3 +43,9 @@ spec:
           value: "info"
       imagePullSecrets:
       - name: registry-evil2root-registry
+"""
+
+with open("kubernetes/deployments/market-scheduler.yaml", "w") as f:
+    f.write(content)
+
+print("Fichier market-scheduler.yaml généré avec succès.") 
