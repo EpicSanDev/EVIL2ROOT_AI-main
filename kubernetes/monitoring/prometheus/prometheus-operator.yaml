@@ -20,8 +20,6 @@ spec:
         image: quay.io/prometheus-operator/prometheus-operator:v0.63.0
         args:
         - "--kubelet-service=kube-system/kubelet"
-        - "--logtostderr=true"
-        - "--config-reloader-image=quay.io/prometheus-operator/prometheus-config-reloader:v0.63.0"
         - "--prometheus-config-reloader=quay.io/prometheus-operator/prometheus-config-reloader:v0.63.0"
         resources:
           limits:
@@ -63,13 +61,13 @@ rules:
     - servicemonitors
     - podmonitors
     - prometheusrules
-  verbs: [*]
+  verbs: ["*"]
 - apiGroups: [apps]
   resources: [statefulsets]
-  verbs: [*]
+  verbs: ["*"]
 - apiGroups: [""]
   resources: [configmaps, secrets]
-  verbs: [*]
+  verbs: ["*"]
 - apiGroups: [""]
   resources: [pods]
   verbs: [list, delete]

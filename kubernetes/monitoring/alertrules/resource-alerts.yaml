@@ -4,8 +4,7 @@ metadata:
   name: trading-bot-resource-alerts
   namespace: monitoring
   labels:
-    app: prometheus
-    role: alert-rules
+    release: kube-prometheus-stack
 spec:
   groups:
   - name: resource-alerts

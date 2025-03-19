@@ -4,7 +4,7 @@ metadata:
   name: trading-bot-monitor
   namespace: monitoring
   labels:
-    app: trading-bot
+    release: kube-prometheus-stack
 spec:
   selector:
     matchLabels:
