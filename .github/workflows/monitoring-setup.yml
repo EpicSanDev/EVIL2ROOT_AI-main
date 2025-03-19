@@ -112,16 +112,18 @@ jobs:
           if ! kubectl get deployment -n kube-system vertical-pod-autoscaler &>/dev/null; then
             echo "VPA n'est pas installé. Installation en cours..."
             
-            # Cloner le dépôt VPA
-            git clone --depth 1 https://github.com/kubernetes/autoscaler.git
-            cd autoscaler/vertical-pod-autoscaler/
+            # Option 1: Installer VPA à partir des manifests directement
+            kubectl apply -f https://raw.githubusercontent.com/kubernetes/autoscaler/vertical-pod-autoscaler-1.3.0/vertical-pod-autoscaler/deploy/recommender-deployment.yaml
+            kubectl apply -f https://raw.githubusercontent.com/kubernetes/autoscaler/vertical-pod-autoscaler-1.3.0/vertical-pod-autoscaler/deploy/updater-deployment.yaml
+            kubectl apply -f https://raw.githubusercontent.com/kubernetes/autoscaler/vertical-pod-autoscaler-1.3.0/vertical-pod-autoscaler/deploy/admission-controller-deployment.yaml
+            kubectl apply -f https://raw.githubusercontent.com/kubernetes/autoscaler/vertical-pod-autoscaler-1.3.0/vertical-pod-autoscaler/deploy/vpa-v1-crd-gen.yaml
+            kubectl apply -f https://raw.githubusercontent.com/kubernetes/autoscaler/vertical-pod-autoscaler-1.3.0/vertical-pod-autoscaler/deploy/vpa-rbac.yaml
             
-            # Installer le VPA
-            ./hack/vpa-up.sh
-            
-            # Retour au répertoire précédent
-            cd ../..
-            rm -rf autoscaler
+            # Vérifier si les composants VPA sont en cours d'exécution
+            echo "Vérification des déploiements VPA..."
+            kubectl wait --for=condition=available deployment/vpa-recommender -n kube-system --timeout=300s
+            kubectl wait --for=condition=available deployment/vpa-updater -n kube-system --timeout=300s
+            kubectl wait --for=condition=available deployment/vpa-admission-controller -n kube-system --timeout=300s
           else
             echo "VPA est déjà installé."
           fi
