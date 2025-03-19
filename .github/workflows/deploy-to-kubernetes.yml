@@ -35,31 +35,36 @@ jobs:
           # Ajouter tweepy dans requirements.txt
           echo "tweepy>=4.12.0  # Pour l'analyse de sentiment Twitter" >> requirements.txt
           
-          # Ajouter la fonction d'installation des dépendances manquantes au script docker-entrypoint.sh
-          cat >> docker-entrypoint.sh << 'EOL'
+          # Créer le script de correction temporaire
+          cat > install_missing_deps.sh << 'EOF'
+          #!/bin/bash
 
-# Fonction pour installer les dépendances manquantes
-install_missing_dependencies() {
-    echo "Vérification des dépendances manquantes..."
-    # Essayer d'importer tweepy, l'installer s'il est manquant
-    python3 -c "import tweepy" 2>/dev/null || {
-        echo "Installation de tweepy..."
-        pip install tweepy
-    }
-    
-    # Vérifier d'autres dépendances couramment manquantes
-    python3 -c "import nltk" 2>/dev/null || {
-        echo "Installation de nltk et téléchargement des ressources..."
-        pip install nltk
-        python3 -c "import nltk; nltk.download('punkt'); nltk.download('stopwords'); nltk.download('wordnet'); nltk.download('averaged_perceptron_tagger')"
-    }
-}
+          # Fonction pour installer les dépendances manquantes
+          install_missing_dependencies() {
+              echo "Vérification des dépendances manquantes..."
+              # Essayer d'importer tweepy, l'installer s'il est manquant
+              python3 -c "import tweepy" 2>/dev/null || {
+                  echo "Installation de tweepy..."
+                  pip install tweepy
+              }
+              
+              # Vérifier d'autres dépendances couramment manquantes
+              python3 -c "import nltk" 2>/dev/null || {
+                  echo "Installation de nltk et téléchargement des ressources..."
+                  pip install nltk
+                  python3 -c "import nltk; nltk.download('punkt'); nltk.download('stopwords'); nltk.download('wordnet'); nltk.download('averaged_perceptron_tagger')"
+              }
+          }
 
-# Installer les dépendances manquantes si demandé
-if [ "${INSTALL_MISSING_DEPS:-false}" = "true" ]; then
-    install_missing_dependencies
-fi
-EOL
+          # Installer les dépendances manquantes si demandé
+          if [ "${INSTALL_MISSING_DEPS:-false}" = "true" ]; then
+              install_missing_dependencies
+          fi
+          EOF
+          
+          # Ajouter au docker-entrypoint.sh
+          cat install_missing_deps.sh >> docker-entrypoint.sh
+          rm install_missing_deps.sh
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
