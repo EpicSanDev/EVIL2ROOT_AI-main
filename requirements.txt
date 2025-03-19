@@ -78,7 +78,7 @@ ccxt>=3.0.0
 statsmodels>=0.14.0
 alpha_vantage>=2.3.0
 backtrader>=1.9.0
-# talib>=0.4.0  # Installé manuellement depuis les sources avec fix-talib-install.sh
+# talib>=0.4.0  # Remplacé par la bibliothèque 'ta' qui offre les mêmes fonctionnalités en Python pur
 
 # Monitoring & Visualization
 plotly>=5.14.0  # Pour stabilité

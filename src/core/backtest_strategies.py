@@ -5,20 +5,55 @@ try:
     import talib
 except ImportError:
     try:
-        # Si le module principal n'est pas disponible, essayer talib.abstract
-        import talib.abstract as talib
+        # Si le module principal n'est pas disponible, essayer d'utiliser l'implémentation ta
+        import pandas as pd
+        import numpy as np
+        from ta import momentum, trend, volatility, volume
+        
+        # Créer un module de remplacement pour talib
+        class TALibWrapper:
+            def RSI(self, prices, timeperiod=14):
+                rsi = momentum.RSIIndicator(close=pd.Series(prices), window=timeperiod)
+                return rsi.rsi().values
+
+            def SMA(self, prices, timeperiod=30):
+                sma = trend.SMAIndicator(close=pd.Series(prices), window=timeperiod)
+                return sma.sma_indicator().values
+
+            def EMA(self, prices, timeperiod=30):
+                ema = trend.EMAIndicator(close=pd.Series(prices), window=timeperiod)
+                return ema.ema_indicator().values
+
+            def MACD(self, prices, fastperiod=12, slowperiod=26, signalperiod=9):
+                macd_ind = trend.MACD(close=pd.Series(prices), window_slow=slowperiod, 
+                                    window_fast=fastperiod, window_sign=signalperiod)
+                macd = macd_ind.macd().values
+                signal = macd_ind.macd_signal().values
+                hist = macd_ind.macd_diff().values
+                return macd, signal, hist
+
+            def BBANDS(self, prices, timeperiod=5, nbdevup=2, nbdevdn=2, matype=0):
+                bbands = volatility.BollingerBands(close=pd.Series(prices), window=timeperiod, 
+                                                window_dev=nbdevup)
+                upper = bbands.bollinger_hband().values
+                middle = bbands.bollinger_mavg().values
+                lower = bbands.bollinger_lband().values
+                return upper, middle, lower
+
+            def ATR(self, high, low, close, timeperiod=14):
+                atr = volatility.AverageTrueRange(high=pd.Series(high), low=pd.Series(low), 
+                                                close=pd.Series(close), window=timeperiod)
+                return atr.average_true_range().values
+                
+        # Créer une instance et l'assigner à talib
+        talib = TALibWrapper()
+        print("Utilisation d'une implémentation compatible de TA-Lib")
     except ImportError:
-        # Si toujours pas disponible, essayer de trouver le module dans d'autres emplacements
-        try:
-            # Parfois installé sous ce nom
-            from ta_lib import talib
-        except ImportError:
-            raise ImportError("""
-Le module 'talib' n'est pas installé correctement. 
+        raise ImportError("""
+Le module 'talib' ou 'ta' n'est pas installé correctement. 
 Pour l'installer :
-1. Compiler et installer TA-Lib depuis les sources
-2. Installer le package Python TA-Lib
-Référez-vous au script fix-talib-install.sh pour plus d'informations.
+1. pip install ta  # Alternative plus facile à installer
+2. Ou installer TA-Lib via le script fix-talib-install.sh
 """)
 from .advanced_backtesting import TradingStrategy
 from ..models.sentiment import MarketSentimentAnalyzer

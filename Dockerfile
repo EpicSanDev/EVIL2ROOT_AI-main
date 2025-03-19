@@ -52,7 +52,7 @@ RUN chmod +x /tmp/fix-redis-connection.sh && \
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
-    LD_LIBRARY_PATH=/usr/lib:$LD_LIBRARY_PATH
+    LD_LIBRARY_PATH=/usr/lib
 
 # Port d'exposition
 EXPOSE 8000

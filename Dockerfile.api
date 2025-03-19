@@ -40,7 +40,7 @@ RUN mkdir -p /app/logs /app/data
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
-    LD_LIBRARY_PATH=/usr/lib:$LD_LIBRARY_PATH
+    LD_LIBRARY_PATH=/usr/lib
 
 # Exposer le port
 EXPOSE 8000
