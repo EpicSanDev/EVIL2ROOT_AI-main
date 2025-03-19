@@ -1,6 +1,31 @@
 #!/bin/bash
 set -e
 
+# Charger les variables d'environnement
+source .env 2>/dev/null || echo "Aucun fichier .env trouvé"
+
+# Fonction pour installer les dépendances manquantes
+install_missing_dependencies() {
+    echo "Vérification des dépendances manquantes..."
+    # Essayer d'importer tweepy, l'installer s'il est manquant
+    python3 -c "import tweepy" 2>/dev/null || {
+        echo "Installation de tweepy..."
+        pip install tweepy
+    }
+    
+    # Vérifier d'autres dépendances couramment manquantes
+    python3 -c "import nltk" 2>/dev/null || {
+        echo "Installation de nltk et téléchargement des ressources..."
+        pip install nltk
+        python3 -c "import nltk; nltk.download('punkt'); nltk.download('stopwords'); nltk.download('wordnet'); nltk.download('averaged_perceptron_tagger')"
+    }
+}
+
+# Installer les dépendances manquantes si demandé
+if [ "${INSTALL_MISSING_DEPS:-false}" = "true" ]; then
+    install_missing_dependencies
+fi
+
 # Création des répertoires nécessaires
 mkdir -p data logs saved_models
 

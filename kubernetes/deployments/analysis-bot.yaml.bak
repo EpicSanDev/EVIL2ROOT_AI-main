@@ -37,7 +37,5 @@ spec:
           value: "postgres"
         - name: LOG_LEVEL
           value: "info"
-        - name: INSTALL_MISSING_DEPS
-          value: "true"
       imagePullSecrets:
       - name: registry-evil2root-registry

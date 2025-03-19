@@ -17,6 +17,50 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyyaml
+          
+      - name: Update Dockerfile for tweepy
+        run: |
+          # Ajouter tweepy dans le Dockerfile
+          sed -i 's/pip install --no-cache-dir PyJWT/pip install --no-cache-dir PyJWT tweepy/g' Dockerfile
+          
+          # Ajouter tweepy dans requirements.txt
+          echo "tweepy>=4.12.0  # Pour l'analyse de sentiment Twitter" >> requirements.txt
+          
+          # Ajouter la fonction d'installation des dépendances manquantes au script docker-entrypoint.sh
+          cat >> docker-entrypoint.sh << 'EOL'
+
+# Fonction pour installer les dépendances manquantes
+install_missing_dependencies() {
+    echo "Vérification des dépendances manquantes..."
+    # Essayer d'importer tweepy, l'installer s'il est manquant
+    python3 -c "import tweepy" 2>/dev/null || {
+        echo "Installation de tweepy..."
+        pip install tweepy
+    }
+    
+    # Vérifier d'autres dépendances couramment manquantes
+    python3 -c "import nltk" 2>/dev/null || {
+        echo "Installation de nltk et téléchargement des ressources..."
+        pip install nltk
+        python3 -c "import nltk; nltk.download('punkt'); nltk.download('stopwords'); nltk.download('wordnet'); nltk.download('averaged_perceptron_tagger')"
+    }
+}
+
+# Installer les dépendances manquantes si demandé
+if [ "${INSTALL_MISSING_DEPS:-false}" = "true" ]; then
+    install_missing_dependencies
+fi
+EOL
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
@@ -154,7 +198,141 @@ jobs:
           kubectl apply -f kubernetes/services/redis.yaml || echo "Erreur lors du déploiement de Redis, assurez-vous que le fichier existe"
           kubectl apply -f kubernetes/services/postgres.yaml || echo "Erreur lors du déploiement de PostgreSQL, assurez-vous que le fichier existe"
 
-      - name: Deploy application components
+      - name: Prepare YAML fix script
+        run: |
+          cat > fix_yaml.py << 'EOF'
+          #!/usr/bin/env python3
+          
+          import yaml
+          import sys
+          import os
+          
+          def fix_yaml_file(file_path):
+              """Corrige un fichier YAML en le parsant et en l'écrivant correctement."""
+              try:
+                  # Lire le contenu du fichier
+                  with open(file_path, 'r') as f:
+                      content = f.read()
+                      
+                  # Parser le YAML
+                  data = yaml.safe_load(content)
+                  
+                  # Écrire le YAML corrigé
+                  with open(file_path, 'w') as f:
+                      yaml.dump(data, f, default_flow_style=False)
+                      
+                  print(f"Fichier {file_path} corrigé avec succès.")
+                  return True
+              except Exception as e:
+                  print(f"Erreur lors de la correction du fichier {file_path}: {str(e)}")
+                  return False
+          
+          def fix_deployment_files():
+              """Corrige les fichiers de déploiement Kubernetes."""
+              deployment_dir = "kubernetes/deployments"
+              files_to_fix = [
+                  f"{deployment_dir}/trading-bot-web.yaml",
+                  f"{deployment_dir}/analysis-bot.yaml",
+                  f"{deployment_dir}/market-scheduler.yaml"
+              ]
+              
+              success = True
+              for file_path in files_to_fix:
+                  if not fix_yaml_file(file_path):
+                      success = False
+                      
+              return success
+          
+          def update_images_and_resources():
+              """Met à jour les images et les ressources dans les fichiers corrigés."""
+              # Configuration commune
+              image_tag = "registry.digitalocean.com/evil2root-registry/evil2root-ai:${{ github.sha }}"
+              deployment_dir = "kubernetes/deployments"
+              files = [
+                  f"{deployment_dir}/trading-bot-web.yaml",
+                  f"{deployment_dir}/analysis-bot.yaml",
+                  f"{deployment_dir}/market-scheduler.yaml"
+              ]
+              
+              for file_path in files:
+                  try:
+                      # Lire le YAML
+                      with open(file_path, 'r') as f:
+                          data = yaml.safe_load(f)
+                          
+                      # Mise à jour de l'image
+                      data['spec']['template']['spec']['containers'][0]['image'] = image_tag
+                      
+                      # Mise à jour des ressources mémoire
+                      resources = data['spec']['template']['spec']['containers'][0]['resources']
+                      resources['requests']['memory'] = "512Mi"
+                      resources['limits']['memory'] = "1Gi"
+                      
+                      # Mise à jour des réplicas
+                      if "trading-bot-web.yaml" in file_path or "analysis-bot.yaml" in file_path:
+                          data['spec']['replicas'] = 2
+                      elif "market-scheduler.yaml" in file_path:
+                          data['spec']['replicas'] = 1
+                          
+                      # Mise à jour de REDIS_PORT
+                      env_vars = data['spec']['template']['spec']['containers'][0]['env']
+                      redis_port_found = False
+                      
+                      for var in env_vars:
+                          if var['name'] == 'REDIS_PORT':
+                              var['value'] = "6379"
+                              redis_port_found = True
+                              break
+                              
+                      if not redis_port_found and "REDIS_HOST" in [v['name'] for v in env_vars]:
+                          # Ajouter REDIS_PORT s'il n'existe pas
+                          env_vars.append({
+                              'name': 'REDIS_PORT',
+                              'value': "6379"
+                          })
+                      
+                      # Ajouter la variable d'environnement INSTALL_MISSING_DEPS pour analysis-bot
+                      if "analysis-bot.yaml" in file_path:
+                          # Vérifier si la variable existe déjà
+                          if not any(var['name'] == 'INSTALL_MISSING_DEPS' for var in env_vars):
+                              env_vars.append({
+                                  'name': 'INSTALL_MISSING_DEPS',
+                                  'value': "true"
+                              })
+                      
+                      # Écrire le YAML mis à jour
+                      with open(file_path, 'w') as f:
+                          yaml.dump(data, f, default_flow_style=False)
+                          
+                      print(f"Fichier {file_path} mis à jour avec succès.")
+                  except Exception as e:
+                      print(f"Erreur lors de la mise à jour du fichier {file_path}: {str(e)}")
+                      return False
+                      
+              return True
+          
+          if __name__ == "__main__":
+              print("Correction des fichiers YAML de déploiement...")
+              
+              # Sauvegarder les fichiers originaux
+              os.system("mkdir -p tmp_yaml")
+              os.system("cp kubernetes/deployments/*.yaml tmp_yaml/")
+              
+              # Corriger la structure YAML
+              if fix_deployment_files():
+                  # Mettre à jour les images et ressources
+                  if update_images_and_resources():
+                      print("Tous les fichiers ont été corrigés et mis à jour avec succès.")
+                      sys.exit(0)
+              
+              print("Restauration des fichiers originaux depuis les sauvegardes...")
+              os.system("cp tmp_yaml/*.yaml kubernetes/deployments/")
+              sys.exit(1)
+          EOF
+          
+          chmod +x fix_yaml.py
+
+      - name: Deploy application components using YAML fix
         run: |
           # Supprimer les déploiements existants s'ils existent
           echo "Suppression des déploiements existants..."
@@ -168,57 +346,36 @@ jobs:
           kubectl wait --for=delete pod --selector=app=analysis-bot --namespace=${{ env.NAMESPACE }} --timeout=60s || true
           kubectl wait --for=delete pod --selector=app=market-scheduler --namespace=${{ env.NAMESPACE }} --timeout=60s || true
           
-          # Déploiement des composants de l'application
-          echo "Déploiement des nouveaux composants avec l'image: ${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.DEPLOYMENT_NAME }}:${{ github.sha }}"
+          # Correction des fichiers YAML et mise à jour des configurations
+          echo "Correction des fichiers YAML et application des modifications..."
+          python3 fix_yaml.py
           
-          # Mise à jour des fichiers de déploiement avec la dernière image
-          sed -i "s|image:.*|image: ${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.DEPLOYMENT_NAME }}:${{ github.sha }}|g" kubernetes/deployments/trading-bot-web.yaml
-          sed -i "s|image:.*|image: ${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.DEPLOYMENT_NAME }}:${{ github.sha }}|g" kubernetes/deployments/analysis-bot.yaml
-          sed -i "s|image:.*|image: ${{ env.DIGITALOCEAN_REGISTRY }}/${{ env.DEPLOYMENT_NAME }}:${{ github.sha }}|g" kubernetes/deployments/market-scheduler.yaml
-          
-          # Augmenter les limites de ressources
-          sed -i "s|memory: 256Mi|memory: 512Mi|g" kubernetes/deployments/trading-bot-web.yaml
-          sed -i "s|memory: 512Mi|memory: 1Gi|g" kubernetes/deployments/trading-bot-web.yaml
-          sed -i "s|memory: 256Mi|memory: 512Mi|g" kubernetes/deployments/analysis-bot.yaml
-          sed -i "s|memory: 512Mi|memory: 1Gi|g" kubernetes/deployments/analysis-bot.yaml
-          sed -i "s|memory: 256Mi|memory: 512Mi|g" kubernetes/deployments/market-scheduler.yaml
-          sed -i "s|memory: 512Mi|memory: 1Gi|g" kubernetes/deployments/market-scheduler.yaml
-          
-          # Réduire le nombre de réplicas pour économiser des ressources
-          sed -i "s|replicas: 3|replicas: 2|g" kubernetes/deployments/trading-bot-web.yaml
-          sed -i "s|replicas: 3|replicas: 2|g" kubernetes/deployments/analysis-bot.yaml
-          sed -i "s|replicas: 2|replicas: 1|g" kubernetes/deployments/market-scheduler.yaml
-          
-          # Correction du problème de la variable d'environnement REDIS_PORT
-          # Vérifier s'il faut ajouter ou modifier les variables d'environnement pour Redis
-          if grep -q "REDIS_PORT" kubernetes/deployments/trading-bot-web.yaml; then
-            # Modification : extraire uniquement le port si l'URL complète est fournie
-            sed -i '/REDIS_PORT/,/value:/s|value: "tcp://.*:||' kubernetes/deployments/trading-bot-web.yaml
-            sed -i '/REDIS_PORT/,/value:/s|"$||' kubernetes/deployments/trading-bot-web.yaml
-          else
-            # Ajout : ajouter une variable d'environnement pour le port Redis extrait de l'URL du service
-            sed -i '/env:/a\        - name: REDIS_PORT_ORIGINAL\n          value: "$(REDIS_PORT)"\n        - name: REDIS_PORT\n          value: "6379"' kubernetes/deployments/trading-bot-web.yaml
+          # En cas d'échec, terminer le workflow
+          if [ $? -ne 0 ]; then
+            echo "Échec de la correction des fichiers YAML. Vérifier les logs pour plus de détails."
+            exit 1
           fi
           
-          # Répéter pour les autres déploiements
-          if grep -q "REDIS_PORT" kubernetes/deployments/analysis-bot.yaml; then
-            sed -i '/REDIS_PORT/,/value:/s|value: "tcp://.*:||' kubernetes/deployments/analysis-bot.yaml
-            sed -i '/REDIS_PORT/,/value:/s|"$||' kubernetes/deployments/analysis-bot.yaml
-          else
-            sed -i '/env:/a\        - name: REDIS_PORT_ORIGINAL\n          value: "$(REDIS_PORT)"\n        - name: REDIS_PORT\n          value: "6379"' kubernetes/deployments/analysis-bot.yaml
-          fi
+          # Déploiement des composants de l'application avec validation
+          echo "Déploiement des composants avec les fichiers YAML corrigés..."
           
-          if grep -q "REDIS_PORT" kubernetes/deployments/market-scheduler.yaml; then
-            sed -i '/REDIS_PORT/,/value:/s|value: "tcp://.*:||' kubernetes/deployments/market-scheduler.yaml
-            sed -i '/REDIS_PORT/,/value:/s|"$||' kubernetes/deployments/market-scheduler.yaml
-          else
-            sed -i '/env:/a\        - name: REDIS_PORT_ORIGINAL\n          value: "$(REDIS_PORT)"\n        - name: REDIS_PORT\n          value: "6379"' kubernetes/deployments/market-scheduler.yaml
-          fi
+          kubectl apply -f kubernetes/deployments/trading-bot-web.yaml || {
+            echo "Erreur lors du déploiement de trading-bot-web. Vérifiez le fichier YAML."
+            kubectl apply -f kubernetes/deployments/trading-bot-web.yaml --validate=true --dry-run=client
+            exit 1
+          }
           
-          # Déploiement des composants de l'application
-          kubectl apply -f kubernetes/deployments/trading-bot-web.yaml
-          kubectl apply -f kubernetes/deployments/analysis-bot.yaml
-          kubectl apply -f kubernetes/deployments/market-scheduler.yaml
+          kubectl apply -f kubernetes/deployments/analysis-bot.yaml || {
+            echo "Erreur lors du déploiement de analysis-bot. Vérifiez le fichier YAML."
+            kubectl apply -f kubernetes/deployments/analysis-bot.yaml --validate=true --dry-run=client
+            exit 1
+          }
+          
+          kubectl apply -f kubernetes/deployments/market-scheduler.yaml || {
+            echo "Erreur lors du déploiement de market-scheduler. Vérifiez le fichier YAML."
+            kubectl apply -f kubernetes/deployments/market-scheduler.yaml --validate=true --dry-run=client
+            exit 1
+          }
           
           # Déploiement des services
           kubectl apply -f kubernetes/services/trading-bot-web.yaml

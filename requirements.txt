@@ -32,6 +32,7 @@ python-telegram-bot>=20.0.0
 asyncio>=3.4.0
 schedule>=1.2.0
 protobuf>=3.20.0,<4.0.0  # Version compatible avec tensorflow 
+tweepy>=4.12.0  # Pour l'analyse de sentiment Twitter
 
 # AI/ML Dependencies
 tensorflow>=2.10.0,<2.16.0
