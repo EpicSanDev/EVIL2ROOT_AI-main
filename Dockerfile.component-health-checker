@@ -1,0 +1,44 @@
+FROM python:3.10-slim
+
+LABEL maintainer="Evil2Root AI Team"
+LABEL description="Vérificateur de santé des composants Kubernetes pour Evil2Root Trading"
+
+# Installation des dépendances système
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    gnupg \
+    lsb-release \
+    apt-transport-https \
+    && rm -rf /var/lib/apt/lists/*
+
+# Installation de kubectl
+RUN curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" > /etc/apt/sources.list.d/kubernetes.list \
+    && apt-get update \
+    && apt-get install -y kubectl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Création des répertoires
+RUN mkdir -p /app /var/log/health-checks /etc/health-checker/config
+
+# Installation des dépendances Python
+COPY requirements-health-checker.txt /app/
+RUN pip install --no-cache-dir -r /app/requirements-health-checker.txt
+
+# Copie du script
+COPY scripts/k8s-component-health-checker.py /app/
+
+# Permissions d'exécution
+RUN chmod +x /app/k8s-component-health-checker.py
+
+# Configuration de l'environnement
+ENV PYTHONUNBUFFERED=1
+ENV LOG_LEVEL=INFO
+ENV KUBERNETES_NAMESPACE=evil2root-trading
+
+# Répertoire de travail
+WORKDIR /app
+
+# Commande par défaut
+ENTRYPOINT ["python", "/app/k8s-component-health-checker.py"] 
