@@ -9,8 +9,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # Copie des fichiers requirements et scripts de correction
 COPY requirements.txt .
-COPY docker/fix-hnswlib-install.sh /tmp/fix-hnswlib-install.sh
-RUN chmod +x /tmp/fix-hnswlib-install.sh
+COPY docker/fix-hnswlib-install.sh docker/fix-talib-install.sh /tmp/
+RUN chmod +x /tmp/fix-hnswlib-install.sh /tmp/fix-talib-install.sh
 
 # Installer les dépendances système et de compilation nécessaires
 # y compris celles pour TA-Lib (build-essential, gcc, python3-dev) et psycopg2 (libpq-dev)
@@ -25,13 +25,13 @@ RUN apt-get update && \
         python3-dev \
         libpq-dev \
         unzip \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* && \
+    # Installer la bibliothèque C TA-Lib
+    /tmp/fix-talib-install.sh
 
 # Mettre à jour pip et installer les dépendances Python
 RUN pip install --no-cache-dir --upgrade pip wheel setuptools && \
     # Étape 1: Installer le wrapper Python TA-Lib.
-    # pip devrait maintenant télécharger et compiler les sources C nécessaires.
-    # AUCUN appel à /tmp/fix-talib-install.sh.
     pip install --no-cache-dir TA-Lib>=0.4.28 && \
     # Maintenant, vérifier que TA-Lib est correctement installé
     python -c "import talib; print('TA-Lib importé avec succès!')" && \
