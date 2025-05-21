@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - storage.yaml
+
+# Déploiements simplifiés pour le développement local
+patchesStrategicMerge:
+  - local-patches/postgres-local.yaml
+  - local-patches/redis-local.yaml
+  - local-patches/adminer-local.yaml

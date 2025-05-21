@@ -14,8 +14,8 @@ from flask_wtf.csrf import CSRFProtect
 load_dotenv()
 
 # Import local modules
-from app.filters import register_filters
-from app.models.position_manager import PositionManager
+from app.ui.filters import register_filters
+from app.models.trading.position_manager import PositionManager
 from app.monitoring import init_monitoring
 from app.api import register_api_routes
 from app.models.db_user import db, User
@@ -120,7 +120,7 @@ def create_app(testing=False):
     
     # Initialize global objects if not in testing mode
     if not testing:
-        from app.trading import TradingBot, DataManager
+        from app.core.trading import TradingBot, DataManager
         global trading_bot, data_manager, position_manager
         
         # Initialiser le PositionManager

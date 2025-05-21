@@ -6,8 +6,8 @@ import json
 from datetime import datetime, timedelta
 
 # Import our trading components
-from app.trading import TradingBot, DataManager
-from app.models.position_manager import PositionManager
+from app.core.trading import TradingBot, DataManager
+from app.models.trading.position_manager import PositionManager
 from app.monitoring import monitoring_service
 
 # Configure logger

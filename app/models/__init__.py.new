@@ -1,0 +1,63 @@
+# filepath: /Users/bastienjavaux/Documents/Trading/EVIL2ROOT_AI-main/app/models/__init__.py
+# Initialize models package
+"""
+Main models package initialization
+"""
+# Import from price models
+from .price.price_prediction import PricePredictionModel
+from .price.price_prediction_mock import MockPricePredictionModel
+
+# Import from trading models
+from .trading.position_manager import PositionManager
+from .trading.risk_management import RiskManager as RiskManagementModel
+from .trading.backtesting import Backtester, run_backtest
+
+# Import from sentiment models
+from .sentiment.sentiment_analysis import SentimentAnalyzer, MarketRegimeDetector
+from .sentiment.sentiment_model import SentimentModel
+
+# Import from ensemble models
+from .ensemble.ensemble_model import EnsembleModel
+from .ensemble.ensemble_integrator import EnsembleIntegrator
+
+# Import from indicator models
+from .indicators.indicator_management import IndicatorManagementModel
+from .indicators.tp_sl_management import TpSlManagementModel
+from .indicators.news_retrieval import NewsRetriever
+
+# Import from ML models
+from .ml.rl_trading import train_rl_agent, evaluate_rl_model, create_trading_env
+from .ml.transformer_model import TransformerModel, FinancialTransformer
+from .ml.online_learning import OnlineLearningModel
+from .ml.probability_calibration import ProbabilityCalibration
+
+# Import from user models
+from .users.user import User
+from .users.db_user import DBUser, db
+
+__all__ = [
+    'PricePredictionModel',
+    'MockPricePredictionModel',
+    'PositionManager',
+    'RiskManagementModel',
+    'Backtester',
+    'TpSlManagementModel',
+    'IndicatorManagementModel',
+    'SentimentAnalyzer',
+    'MarketRegimeDetector',
+    'SentimentModel',
+    'run_backtest',
+    'train_rl_agent',
+    'evaluate_rl_model',
+    'create_trading_env',
+    'TransformerModel',
+    'FinancialTransformer',
+    'EnsembleModel',
+    'EnsembleIntegrator',
+    'OnlineLearningModel',
+    'NewsRetriever',
+    'ProbabilityCalibration',
+    'User',
+    'DBUser',
+    'db'
+]
