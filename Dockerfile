@@ -37,8 +37,8 @@ RUN chmod +x /tmp/fix-hnswlib-install.sh && \
 # Installation des dépendances Python
 # Exécuter fix-talib-install.sh AVANT d'installer les autres dépendances
 RUN pip install --no-cache-dir --upgrade pip wheel setuptools && \
-    /tmp/fix-talib-install.sh && \
-    # Installer les dépendances de production (y compris le wrapper TA-Lib)
+    # Supprimer l'appel à /tmp/fix-talib-install.sh
+    # Installer les dépendances de production (y compris TA-Lib, qui devrait maintenant se compiler correctement)
     pip install --no-cache-dir -r requirements.txt && \
     # Maintenant, vérifier que TA-Lib est correctement installé
     python -c "import talib; print('TA-Lib importé avec succès!')" && \
