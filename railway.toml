@@ -1,6 +1,6 @@
 [build]
 builder = "dockerfile"
-buildCommand = "docker/railway-talib-install.sh && python -m pip install --upgrade pip setuptools wheel && pip install -r requirements.txt"
+buildCommand = "docker/railway-talib-install.sh || docker/talib-binary-install.sh"
 
 [deploy]
 startCommand = "python app/app.py"
@@ -12,3 +12,4 @@ restartPolicyType = "on_failure"
 TA_INCLUDE_PATH = "/usr/include"
 TA_LIBRARY_PATH = "/usr/lib"
 PORT = "8000"
+NUMPY_VERSION = "1.24.3"

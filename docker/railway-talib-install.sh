@@ -29,26 +29,16 @@ echo "Configuration des en-têtes et des bibliothèques..."
 mkdir -p /usr/include/ta-lib
 cp -r /usr/include/ta_*.h /usr/include/ta-lib/
 
-# Rechercher les bibliothèques TA-Lib installées
-find /usr/lib -name "libta_*" -type f -o -type l
-find /usr/lib -name "libta-lib*" -type f -o -type l
+# Installer une version spécifique de numpy compatible
+echo "Installation d'une version de NumPy compatible avec TA-Lib..."
+pip install numpy==1.24.3
 
-# Symlinks
-ln -sf /usr/lib/libta_lib.so.0 /usr/lib/libta_lib.so
-ln -sf /usr/lib/libta_lib.so.0 /usr/lib/libta-lib.so
-echo "/usr/lib" > /etc/ld.so.conf.d/talib.conf
-ldconfig
+# Installer directement depuis le repo GitHub
+echo "Installation de TA-Lib Python wrapper depuis GitHub..."
+pip install git+https://github.com/TA-Lib/ta-lib-python.git@0.4.28
 
-# Configurer les variables d'environnement pour pip install
-export TA_INCLUDE_PATH=/usr/include
-export TA_LIBRARY_PATH=/usr/lib
-
-echo "Installation de TA-Lib Python wrapper avec les flags spécifiques..."
-pip install --global-option=build_ext --global-option="-I/usr/include/" --global-option="-L/usr/lib/" TA-Lib==0.4.28
-
-# Vérifier l'installation
+# Tester l'installation
+echo "Test de l'installation de TA-Lib..."
 python -c "import talib; print('TA-Lib importé avec succès!')"
 
 echo "Installation de TA-Lib terminée!"
-echo "Contenu du répertoire /usr/include/ta-lib:"
-ls -la /usr/include/ta-lib
