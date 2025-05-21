@@ -31,17 +31,20 @@ RUN apt-get update && \
 
 # Mettre à jour pip et installer les dépendances Python
 RUN pip install --no-cache-dir --upgrade pip wheel setuptools && \
-    # Étape 1: Installer le wrapper Python TA-Lib.
-    # pip devrait maintenant télécharger et compiler les sources C nécessaires.
-    # L'appel à /tmp/fix-talib-install.sh est supprimé.
+    # Étape 1: Installer la bibliothèque C TA-Lib en utilisant le script
+    # Le script est déjà rendu exécutable plus haut.
+    /tmp/fix-talib-install.sh && \
+    # Étape 2: Installer le wrapper Python TA-Lib.
+    # Il devrait maintenant trouver la lib C installée dans /usr/lib et les en-têtes dans /usr/include
     pip install --no-cache-dir TA-Lib>=0.4.28 && \
     # Maintenant, vérifier que TA-Lib est correctement installé
     python -c "import talib; print('TA-Lib importé avec succès!')" && \
-    # Étape 2: Installer le reste des dépendances de production
+    # Étape 3: Installer le reste des dépendances de production
     pip install --no-cache-dir -r requirements.txt && \
-    # Installer les dépendances supplémentaires qui pourraient être nécessaires pour le build ou runtime
+    # Installer les dépendances supplémentaires
     pip install --no-cache-dir PyJWT tweepy && \
-    # Exécuter le script de correction pour hnswlib après l'installation des requirements
+    # Exécuter le script de correction pour hnswlib
+    # Le script est déjà rendu exécutable plus haut.
     /tmp/fix-hnswlib-install.sh
 
 # Copie du code source de l'application
