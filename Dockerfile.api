@@ -16,37 +16,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Copier les fichiers de requirements et scripts
-COPY requirements.txt .
-COPY docker/fix-talib-install.sh /tmp/fix-talib-install.sh
+# Télécharger et installer la bibliothèque native TA-Lib
+RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz && \
+    tar -xzf ta-lib-0.4.0-src.tar.gz && \
+    cd ta-lib && \
+    ./configure --prefix=/usr && \
+    make && \
+    make install && \
+    cd .. && \
+    rm -rf ta-lib ta-lib-0.4.0-src.tar.gz && \
+    ldconfig
 
-# Corriger la version de TA-Lib dans requirements
-RUN sed -i 's/TA-Lib>=0.4.28/TA-Lib==0.4.28/' requirements.txt
+# Copier les fichiers de requirements
+COPY requirements.txt .
 
 # Installer les dépendances Python
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential \
-        wget \
-        ca-certificates \
-        gcc \
-        g++ \
-        make \
-        pkg-config \
-    && wget -q https://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
-    && tar -xzf ta-lib-0.4.0-src.tar.gz \
-    && cd ta-lib \
-    && ./configure --prefix=/usr --build=$(uname -m)-unknown-linux-gnu \
-    && make -j$(nproc) \
-    && make install \
-    && cd .. \
-    && rm -rf ta-lib ta-lib-0.4.0-src.tar.gz \
-    && ldconfig \
-    && pip install --no-cache-dir --upgrade pip wheel setuptools \
-    && pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir TA-Lib==0.4.28 \
-    && pip install --no-cache-dir PyJWT \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir --upgrade pip wheel setuptools && \
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir TA-Lib>=0.4.28 && \
+    pip install --no-cache-dir PyJWT
 
 # Copier le code source
 COPY src/ /app/src/
@@ -64,4 +52,4 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 EXPOSE 8000
 
 # Commande de démarrage
-CMD ["uvicorn", "src.api.app:create_app", "--host", "0.0.0.0", "--port", "8000"] 
+CMD ["uvicorn", "src.api.app:create_app", "--host", "0.0.0.0", "--port", "8000"]
