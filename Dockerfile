@@ -38,10 +38,10 @@ RUN chmod +x /tmp/fix-hnswlib-install.sh && \
 # Exécuter fix-talib-install.sh AVANT d'installer les autres dépendances
 RUN pip install --no-cache-dir --upgrade pip wheel setuptools && \
     /tmp/fix-talib-install.sh && \
-    # Vérifier que TA-Lib est correctement installé
-    python -c "import talib; print('TA-Lib importé avec succès!')" && \
-    # Installer les dépendances de production
+    # Installer les dépendances de production (y compris le wrapper TA-Lib)
     pip install --no-cache-dir -r requirements.txt && \
+    # Maintenant, vérifier que TA-Lib est correctement installé
+    python -c "import talib; print('TA-Lib importé avec succès!')" && \
     # Installer les dépendances supplémentaires qui pourraient être nécessaires pour le build ou runtime
     pip install --no-cache-dir PyJWT tweepy && \
     # Exécuter le script de correction pour hnswlib après l'installation des requirements
