@@ -15,34 +15,29 @@ RUN chmod +x /tmp/fix-hnswlib-install.sh && \
     chmod +x /tmp/fix-talib-install.sh
 
 # Installer les dépendances système et de compilation nécessaires
-# y compris celles pour TA-Lib (build-essential, gcc, python3-dev) et psycopg2 (libpq-dev)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    python3-dev \
-    libpq-dev \
-    g++ \
-    make \
-    cmake \
-    build-essential \
-    libblas-dev \
-    liblapack-dev \
-    libatlas-base-dev \
-    gfortran \
-    git \
-    wget \
-    unzip \
-    pkg-config \
-    && apt-get clean \
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        wget \
+        build-essential \
+        gcc \
+        g++ \
+        make \
+        pkg-config \
+        python3-dev \
+        libpq-dev \
+        unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # Mettre à jour pip et installer les dépendances Python
 RUN pip install --no-cache-dir --upgrade pip wheel setuptools && \
-    # Étape 1: Installer TA-Lib séparément pour s'assurer qu'il se compile correctement
-    # pip devrait maintenant trouver les outils de compilation et les en-têtes nécessaires
+    # Étape 1: Installer la bibliothèque C TA-Lib en utilisant le script
+    # Le script fix-talib-install.sh doit être copié dans /tmp/ au préalable
+    /tmp/fix-talib-install.sh && \
+    # Étape 2: Installer le wrapper Python TA-Lib. Il devrait maintenant trouver la lib C.
     pip install --no-cache-dir TA-Lib>=0.4.28 && \
     # Maintenant, vérifier que TA-Lib est correctement installé
     python -c "import talib; print('TA-Lib importé avec succès!')" && \
-    # Étape 2: Installer le reste des dépendances de production
+    # Étape 3: Installer le reste des dépendances de production
     pip install --no-cache-dir -r requirements.txt && \
     # Installer les dépendances supplémentaires qui pourraient être nécessaires pour le build ou runtime
     pip install --no-cache-dir PyJWT tweepy && \
