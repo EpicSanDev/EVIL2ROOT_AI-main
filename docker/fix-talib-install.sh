@@ -6,19 +6,22 @@ cd "$TEMP_DIR"
 apt-get update
 apt-get install -y --no-install-recommends wget build-essential gcc g++ make pkg-config
 
-echo "Téléchargement de TA-Lib 0.4.0..."
-wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
-tar -xzf ta-lib-0.4.0-src.tar.gz
+# Utiliser une version plus récente de TA-Lib pour être compatible avec le wrapper Python >= 0.4.28
+echo "Téléchargement et installation de TA-Lib depuis le dépôt git..."
+git clone --depth=1 https://github.com/TA-Lib/ta-lib.git
 cd ta-lib/
+./autogen.sh
 echo "Configuration et compilation de TA-Lib..."
-./configure --prefix=/usr --build=$(uname -m)-unknown-linux-gnu
+./configure --prefix=/usr
 make -j$(nproc)
 make install
 cd ../
 
 ln -sf /usr/lib/libta_lib.so.0 /usr/lib/libta_lib.so
 ln -sf /usr/lib/libta_lib.so.0 /usr/lib/libta-lib.so
+echo "/usr/lib" > /etc/ld.so.conf.d/talib.conf
 ldconfig
+echo "Installation de TA-Lib terminée avec succès!"
 
 echo "Vérification de l'installation de la bibliothèque C TA-Lib:"
 ls -la /usr/lib/libta_lib*
