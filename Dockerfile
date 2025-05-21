@@ -107,13 +107,17 @@ RUN apt-get update && \
 
 # Créer le répertoire pour les données NLTK, télécharger les données, et définir la variable d'environnement
 RUN mkdir -p /app/nltk_data && \
-    python -m nltk.downloader -d /app/nltk_data punkt && \
+    python -m nltk.downloader -d /app/nltk_data punkt averaged_perceptron_tagger && \
     chown -R appuser:appuser /app/nltk_data
 ENV NLTK_DATA=/app/nltk_data
+
+# Créer le répertoire pour le cache Matplotlib
+RUN mkdir -p /app/.matplotlib_cache
+ENV MPLCONFIGDIR=/app/.matplotlib_cache
+
 # Définir les permissions pour l'utilisateur non-root
-# Donner la propriété du répertoire de travail à l'utilisateur non-root
+# Donner la propriété du répertoire de travail à l'utilisateur non-root, y compris nltk_data et matplotlib_cache
 RUN chown -R appuser:appuser /app
-# Donner les permissions d'exécution si nécessaire pour des scripts spécifiques
 
 # Changer d'utilisateur
 USER appuser
