@@ -9,8 +9,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # Copie des fichiers requirements et scripts de correction
 COPY requirements.txt .
-COPY docker/fix-hnswlib-install.sh docker/fix-talib-install.sh docker/fix-talib-install-alt.sh docker/talib-binary-install.sh docker/talib-mock-install.sh /tmp/
-RUN chmod +x /tmp/fix-hnswlib-install.sh /tmp/fix-talib-install.sh /tmp/fix-talib-install-alt.sh /tmp/talib-binary-install.sh /tmp/talib-mock-install.sh
+COPY docker/fix-hnswlib-install.sh docker/fix-talib-install.sh docker/fix-talib-install-alt.sh docker/talib-binary-install.sh docker/talib-mock-install.sh docker/improved-talib-install.sh /tmp/
+RUN chmod +x /tmp/fix-hnswlib-install.sh /tmp/fix-talib-install.sh /tmp/fix-talib-install-alt.sh /tmp/talib-binary-install.sh /tmp/talib-mock-install.sh /tmp/improved-talib-install.sh
 
 # Installer les dépendances système et de compilation nécessaires
 # y compris celles pour TA-Lib (build-essential, gcc, python3-dev) et psycopg2 (libpq-dev)
@@ -29,18 +29,13 @@ RUN apt-get update && \
         automake \
         libtool \
     && rm -rf /var/lib/apt/lists/* && \
-    # Essayer d'installer la bibliothèque C TA-Lib via plusieurs méthodes
-    { /tmp/fix-talib-install.sh || /tmp/fix-talib-install-alt.sh || /tmp/talib-binary-install.sh || /tmp/talib-mock-install.sh; }
+    # Installer la bibliothèque C TA-Lib via le script amélioré
+    /tmp/improved-talib-install.sh
 
 # Mettre à jour pip et installer les dépendances Python
 RUN pip install --no-cache-dir --upgrade pip wheel setuptools && \
-    # Installer une version de NumPy compatible avec TA-Lib
-    pip install --no-cache-dir numpy==1.24.3 && \
-    # Essayer d'installer TA-Lib via différentes méthodes
-    { pip install --no-cache-dir --index-url https://pypi.anaconda.org/ranaroussi/simple ta-lib==0.4.28 || \
-      pip install --no-cache-dir git+https://github.com/TA-Lib/ta-lib-python.git@0.4.28 || \
-      pip install --no-cache-dir --global-option=build_ext --global-option="-I/usr/include/" --global-option="-L/usr/lib/" TA-Lib==0.4.28; } && \
-    # Vérifier que TA-Lib est correctement installé
+    # Installer une version de NumPy compatible avec TA-Lib (déjà installé dans le script improved-talib-install.sh)
+    # Valider que TA-Lib est correctement installé
     python -c "import talib; print('TA-Lib importé avec succès!')" && \
     # Installer le reste des dépendances de production
     pip install --no-cache-dir -r requirements.txt && \
