@@ -34,11 +34,13 @@ RUN apt-get update && \
 
 # Mettre à jour pip et installer les dépendances Python
 RUN pip install --no-cache-dir --upgrade pip wheel setuptools && \
-    # Étape 1: Installer le wrapper Python TA-Lib en spécifiant une version exacte compatible
+    # Installer TA-Lib avec des options de build spécifiques pour s'assurer que les en-têtes sont trouvés
+    export TA_INCLUDE_PATH=/usr/include && \
+    export TA_LIBRARY_PATH=/usr/lib && \
     pip install --no-cache-dir TA-Lib==0.4.28 && \
-    # Maintenant, vérifier que TA-Lib est correctement installé
+    # Vérifier que TA-Lib est correctement installé
     python -c "import talib; print('TA-Lib importé avec succès!')" && \
-    # Étape 2: Installer le reste des dépendances de production
+    # Installer le reste des dépendances de production
     pip install --no-cache-dir -r requirements.txt && \
     # Installer les dépendances supplémentaires
     pip install --no-cache-dir PyJWT tweepy && \
