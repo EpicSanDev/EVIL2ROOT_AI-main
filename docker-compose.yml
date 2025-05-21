@@ -16,16 +16,22 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
-      POSTGRES_DB: evil2root
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB_FILE: /run/secrets/postgres_db
+      POSTGRES_USER_FILE: /run/secrets/postgres_user
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U $$(cat /run/secrets/postgres_user)"]
       interval: 10s
       timeout: 5s
       retries: 5
+    secrets:
+      - postgres_db
+      - postgres_user
+      - postgres_password
+    networks:
+      - evil2root-network
 
   # API FastAPI
   api:
@@ -34,23 +40,39 @@ services:
       dockerfile: Dockerfile
     container_name: evil2root-api
     restart: unless-stopped
-    volumes:
-      - ./:/app
-      - ./logs:/app/logs
+    env_file:
+      - .env # Pour les configurations non sensibles
     environment:
-      - DEBUG=true
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_USER=postgres
-      - DB_PASSWORD=postgres
-      - DB_NAME=evil2root
-      - DB_TYPE=postgresql
+      # DATABASE_URL est maintenant construit dynamiquement ou via un secret dédié si nécessaire
+      # Exemple: DATABASE_URL: "postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
+      # Pour une gestion par secret complet: DATABASE_URL_FILE: /run/secrets/database_url
+      # Ici, nous allons utiliser les secrets individuels pour user/password et des env vars pour le reste
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME_FILE: /run/secrets/postgres_db # Réutilise le secret de postgres pour le nom de la DB
+      DB_USER_FILE: /run/secrets/db_user # Utilise le secret db_user existant
+      DB_PASSWORD_FILE: /run/secrets/db_password # Utilise le secret db_password existant
+      DB_TYPE: postgresql
+      SECRET_KEY_FILE: /run/secrets/secret_key
+      # Ajoutez d'autres variables d'environnement lues depuis des secrets si nécessaire
+      # ALGORITHM_FILE: /run/secrets/algorithm
+      # ACCESS_TOKEN_EXPIRE_MINUTES: 30
+      # REFRESH_TOKEN_EXPIRE_DAYS: 7
     ports:
       - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
-    command: uvicorn src.api.app:create_app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn src.api.app:create_app --host 0.0.0.0 --port 8000
+    secrets:
+      - db_user
+      - db_password
+      - secret_key
+      - postgres_db # Pour DB_NAME_FILE
+      # - database_url # Si vous utilisez DATABASE_URL_FILE
+      # - algorithm # Si vous ajoutez ALGORITHM_FILE
+    networks:
+      - evil2root-network
 
   # Frontend React
   frontend:
@@ -60,30 +82,40 @@ services:
     container_name: evil2root-frontend
     restart: unless-stopped
     ports:
-      - "3000:80"
+      - "3000:80" # Nginx dans le conteneur écoute sur le port 80
     depends_on:
       - api
-    volumes:
-      - ./frontend/nginx:/etc/nginx/conf.d
+    networks:
+      - evil2root-network
+    # Plus de montage de volume pour le code source en production
+    # Plus de montage de volume pour la configuration nginx si elle est copiée dans l'image
 
   # Service pour les migrations de base de données
   migrations:
     build:
-      context: .
+      context: . # Utilise le même Dockerfile que l'API
       dockerfile: Dockerfile
     container_name: evil2root-migrations
     restart: "no"
+    env_file:
+      - .env # Pour les configurations non sensibles
     environment:
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_USER=postgres
-      - DB_PASSWORD=postgres
-      - DB_NAME=evil2root
-      - DB_TYPE=postgresql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME_FILE: /run/secrets/postgres_db
+      DB_USER_FILE: /run/secrets/db_user
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      DB_TYPE: postgresql
     depends_on:
       postgres:
         condition: service_healthy
     command: alembic upgrade head
+    secrets:
+      - db_user
+      - db_password
+      - postgres_db
+    networks:
+      - evil2root-network
 
   # PgAdmin (optionnel, pour la gestion de la base de données)
   pgadmin:
@@ -92,24 +124,106 @@ services:
     restart: unless-stopped
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@evil2root.com
-      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin_default_password
     ports:
       - "5050:80"
     depends_on:
       - postgres
     volumes:
       - pgadmin_data:/var/lib/pgadmin
+    secrets:
+      - pgadmin_default_password
+    networks:
+      - evil2root-network
+
+  redis:
+    image: redis:alpine
+    container_name: evil2root-redis
+    restart: always
+    networks:
+      - evil2root-network
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: evil2root-scheduler
+    restart: always
+    env_file:
+      - .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME_FILE: /run/secrets/postgres_db
+      DB_USER_FILE: /run/secrets/db_user
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      DB_TYPE: postgresql
+      SECRET_KEY_FILE: /run/secrets/secret_key
+    command: python app/market_analysis_scheduler.py
+    depends_on:
+      api:
+        condition: service_started # ou une condition plus stricte si l'api doit être pleinement fonctionnelle
+      postgres:
+        condition: service_healthy
+    secrets:
+      - db_user
+      - db_password
+      - postgres_db
+      - secret_key
+    networks:
+      - evil2root-network
+
+  analysis_bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: evil2root-analysis-bot
+    restart: always
+    env_file:
+      - .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME_FILE: /run/secrets/postgres_db
+      DB_USER_FILE: /run/secrets/db_user
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      DB_TYPE: postgresql
+      SECRET_KEY_FILE: /run/secrets/secret_key
+      # Pour l'instant, pas de configuration GPU
+      # <<: *gpu-runtime # Décommenter si le GPU est nécessaire et configuré
+    command: python app/daily_analysis_bot.py
+    depends_on:
+      api:
+        condition: service_started # ou une condition plus stricte
+      postgres:
+        condition: service_healthy
+    secrets:
+      - db_user
+      - db_password
+      - postgres_db
+      - secret_key
+    networks:
+      - evil2root-network
 
 # Définition des secrets
 secrets:
-  db_user:
+  postgres_user:
+    file: ./secrets/postgres_user.txt # Doit être créé
+  postgres_password:
+    file: ./secrets/postgres_password.txt # Doit être créé
+  postgres_db:
+    file: ./secrets/postgres_db.txt # Doit être créé
+  pgadmin_default_password: # Nouveau secret pour pgAdmin
+    file: ./secrets/pgadmin_default_password.txt # Doit être créé
+  db_user: # Déjà existant, utilisé par l'API et les migrations
     file: ./secrets/db_user.txt
-  db_password:
+  db_password: # Déjà existant, utilisé par l'API et les migrations
     file: ./secrets/db_password.txt
-  secret_key:
+  secret_key: # Déjà existant, utilisé par l'API
     file: ./secrets/secret_key.txt
-  admin_password:
-    file: ./secrets/admin_password.txt
+  # Les secrets suivants sont conservés s'ils sont utilisés par l'application
+  # admin_password:
+  #   file: ./secrets/admin_password.txt
   telegram_token:
     file: ./secrets/telegram_token.txt
   finnhub_api_key:
@@ -120,6 +234,11 @@ secrets:
     file: ./secrets/coinbase_api_key.txt
   coinbase_webhook_secret:
     file: ./secrets/coinbase_webhook_secret.txt
+  # database_url: # Si vous optez pour un secret DATABASE_URL complet pour l'API
+  #   file: ./secrets/database_url.txt
+  # algorithm: # Si vous ajoutez un secret pour ALGORITHM pour l'API
+  #   file: ./secrets/algorithm.txt
+
 
 volumes:
   postgres_data:
