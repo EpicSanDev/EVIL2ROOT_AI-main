@@ -1,0 +1,48 @@
+# dockerfile: /Users/bastienjavaux/Documents/Trading/EVIL2ROOT_AI-main/Dockerfile.talib-base
+# Ce Dockerfile crée une image de base avec TA-Lib préinstallé
+
+FROM python:3.10-slim as talib-base
+
+WORKDIR /app
+
+# Variables d'environnement pour le build
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DEFAULT_TIMEOUT=100 \
+    PYTHONIOENCODING=UTF-8
+
+# Installer les dépendances système et de compilation nécessaires
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        wget \
+        build-essential \
+        gcc \
+        g++ \
+        make \
+        pkg-config \
+        python3-dev \
+        unzip \
+        git \
+        automake \
+        libtool \
+    && rm -rf /var/lib/apt/lists/*
+
+# Télécharger et installer TA-Lib
+RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz && \
+    tar -xzf ta-lib-0.4.0-src.tar.gz && \
+    cd ta-lib/ && \
+    ./configure --prefix=/usr && \
+    make && \
+    make install && \
+    cd .. && \
+    rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/
+
+# Installer le wrapper Python pour TA-Lib
+RUN pip install --no-cache-dir --upgrade pip wheel setuptools && \
+    pip install --no-cache-dir numpy && \
+    pip install --no-cache-dir TA-Lib==0.4.28
+
+# Nettoyer pour réduire la taille de l'image
+RUN apt-get clean && \
+    apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*

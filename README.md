@@ -459,6 +459,45 @@ python -m src.api.run_api --init-db
 alembic upgrade head
 ```
 
+### Installation avec Docker
+
+1. Construction de l'image Docker standard :
+
+```bash
+make build
+# ou
+docker compose build
+```
+
+2. Construction avec surveillance anti-timeout (recommandé pour CI/CD) :
+
+```bash
+make build-monitored
+# ou
+./monitor-build.sh --timeout 60  # Timeout en minutes
+```
+
+3. Construction optimisée pour éviter les timeouts :
+
+```bash
+# Construction rapide avec mock TA-Lib
+make build-fast
+# ou
+./build-docker.sh --use-mock-talib
+
+# Construction minimale (composants essentiels seulement)
+make build-minimal
+# ou
+./build-docker.sh --essential-only --use-mock-talib
+
+# Sauter les dépendances lourdes comme TensorFlow/PyTorch
+./build-docker.sh --skip-tensorflow --skip-torch
+```
+
+> **Note**: Pour plus de détails sur les options de build optimisées, consultez le [Guide de Build Docker](DOCKER_BUILD_GUIDE.md).
+
+3. Lancement du conteneur :
+
 6. Lancez l'API :
 
 ```bash

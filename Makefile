@@ -1,5 +1,5 @@
 # EVIL2ROOT Trading Bot - Docker operations
-.PHONY: build up down logs ps clean restart purge backup test shell
+.PHONY: build up down logs ps clean restart purge backup test shell build-fast build-minimal build-no-cache build-monitored
 
 # Default target when just running 'make'
 all: up
@@ -7,6 +7,22 @@ all: up
 # Build or rebuild the Docker containers
 build:
 	docker compose build
+
+# Build with monitoring to prevent timeouts (recommended for CI/CD)
+build-monitored:
+	./monitor-build.sh --timeout 60
+
+# Build with optimized settings for faster build time
+build-fast:
+	./build-docker.sh --use-mock-talib
+
+# Build with minimal dependencies (fastest)
+build-minimal:
+	./build-docker.sh --essential-only --use-mock-talib
+
+# Build without using Docker cache
+build-no-cache:
+	./build-docker.sh --no-cache
 
 # Start the application with detached mode (running in background)
 up:
