@@ -27,7 +27,12 @@ RUN chmod +x /tmp/fix-talib-install.sh && \
     python -c "import talib; print('TA-Lib importé avec succès!')"
 
 # Installer les dépendances Python
-RUN pip install --no-cache-dir --upgrade pip wheel setuptools && \
+RUN apt-get update && \
+    apt-get install -y build-essential libta-lib-dev || ( \
+      wget https://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz && \
+      tar -xzf ta-lib-0.4.0-src.tar.gz && cd ta-lib && \
+      ./configure && make && make install && cd .. ) && \
+    pip install --no-cache-dir --upgrade pip wheel setuptools && \
     pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir PyJWT
 
