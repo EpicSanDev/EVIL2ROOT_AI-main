@@ -10,9 +10,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Copie des fichiers requirements et scripts de correction
 COPY requirements.txt .
 COPY docker/fix-hnswlib-install.sh /tmp/fix-hnswlib-install.sh
-COPY docker/fix-talib-install.sh /tmp/fix-talib-install.sh
-RUN chmod +x /tmp/fix-hnswlib-install.sh && \
-    chmod +x /tmp/fix-talib-install.sh
+RUN chmod +x /tmp/fix-hnswlib-install.sh
 
 # Installer les dépendances système et de compilation nécessaires
 # y compris celles pour TA-Lib (build-essential, gcc, python3-dev) et psycopg2 (libpq-dev)
@@ -31,20 +29,18 @@ RUN apt-get update && \
 
 # Mettre à jour pip et installer les dépendances Python
 RUN pip install --no-cache-dir --upgrade pip wheel setuptools && \
-    # Étape 1: Installer la bibliothèque C TA-Lib en utilisant le script
-    # Le script est déjà rendu exécutable plus haut.
-    /tmp/fix-talib-install.sh && \
-    # Étape 2: Installer le wrapper Python TA-Lib.
-    # Il devrait maintenant trouver la lib C installée dans /usr/lib et les en-têtes dans /usr/include
+    # Étape 1: Installer le wrapper Python TA-Lib.
+    # pip devrait maintenant télécharger et compiler les sources C nécessaires.
+    # AUCUN appel à /tmp/fix-talib-install.sh.
     pip install --no-cache-dir TA-Lib>=0.4.28 && \
     # Maintenant, vérifier que TA-Lib est correctement installé
     python -c "import talib; print('TA-Lib importé avec succès!')" && \
-    # Étape 3: Installer le reste des dépendances de production
+    # Étape 2: Installer le reste des dépendances de production
     pip install --no-cache-dir -r requirements.txt && \
     # Installer les dépendances supplémentaires
     pip install --no-cache-dir PyJWT tweepy && \
     # Exécuter le script de correction pour hnswlib
-    # Le script est déjà rendu exécutable plus haut.
+    chmod +x /tmp/fix-hnswlib-install.sh && \
     /tmp/fix-hnswlib-install.sh
 
 # Copie du code source de l'application
