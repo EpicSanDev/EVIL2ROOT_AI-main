@@ -100,6 +100,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # S'assurer que les libs sont trouvées
 ENV LD_LIBRARY_PATH=/usr/local/lib:/usr/lib
 
+# Installer unzip pour NLTK et nettoyer apt
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends unzip && \
+    rm -rf /var/lib/apt/lists/*
+
+# Créer le répertoire pour les données NLTK, télécharger les données, et définir la variable d'environnement
+RUN mkdir -p /app/nltk_data && \
+    python -m nltk.downloader -d /app/nltk_data punkt && \
+    chown -R appuser:appuser /app/nltk_data
+ENV NLTK_DATA=/app/nltk_data
 # Définir les permissions pour l'utilisateur non-root
 # Donner la propriété du répertoire de travail à l'utilisateur non-root
 RUN chown -R appuser:appuser /app
