@@ -103,6 +103,69 @@ make build
 
 But be prepared for a longer build time. Consider using a CI/CD pipeline with higher timeouts for production builds.
 
+## ARM64-Specific Builds (Apple Silicon)
+
+If you're using an ARM64-based machine (like M1/M2/M3 Macs), we've created specialized build processes:
+
+### Option 1: Optimized ARM64 Build
+
+```bash
+./docker/build-arm64.sh
+```
+
+or
+
+```bash
+make build-arm64
+```
+
+**Best for**: Standard build optimized for ARM64 architecture.
+
+### Option 2: Fast ARM64 Build with Mock TA-Lib
+
+```bash
+./docker/build-arm64.sh --use-mock-talib
+```
+
+or
+
+```bash
+make build-arm64-mock
+```
+
+**Best for**: Development on Apple Silicon when you need a fast build and don't need full TA-Lib functionality.
+
+### Option 3: Minimal ARM64 Build
+
+```bash
+./docker/build-arm64.sh --essential-only
+```
+
+or
+
+```bash
+make build-arm64-minimal
+```
+
+**Best for**: Quick setup with only essential features on ARM64.
+
+### ARM64 Build Features
+
+Our ARM64-specific build process includes:
+
+1. **Resource Pre-check**: Checks your system memory and disk space and provides recommendations
+2. **Architecture-specific Optimization**: Uses optimized build flags for ARM64
+3. **Automatic Fallbacks**: If a build fails or times out, it automatically tries less resource-intensive options
+4. **Timeout Management**: Built-in timeouts to prevent hanging builds
+5. **Mock TA-Lib Implementation**: Uses a specially optimized mock implementation for ARM64
+
+### Apple Silicon Specific Notes
+
+For M1/M2/M3 Mac users:
+- Make sure Docker Desktop is set to use the "Use Rosetta for x86/amd64 emulation" option if you need to build x86 images
+- For maximum performance, use the native ARM64 build process
+- Our mock TA-Lib implementation includes optimized versions of key indicators (SMA, EMA, RSI, MACD, BBANDS) that perform well on Apple Silicon
+
 ## Troubleshooting Tips
 
 1. **Memory Issues**: If Docker runs out of memory, increase the memory allocation in Docker's settings.

@@ -29,6 +29,7 @@ apprentissage par renforcement et analyse du sentiment de marché.**
 - **API Complète** : Intégration facile avec des systèmes externes via une API RESTful documentée
 - **Gestion Dynamique des Risques** : Calcul intelligent des tailles de position et niveaux stop-loss/take-profit
 - **Surveillance en Temps Réel** : Interface web intuitive avec tableaux de bord complets et alertes instantanées
+- **Support ARM64 Natif** : Optimisé pour Apple Silicon (M1/M2/M3) avec builds spécifiques à l'architecture
 
 ## 🚀 Architecture de Déploiement
 
@@ -480,23 +481,42 @@ make build-monitored
 3. Construction optimisée pour éviter les timeouts :
 
 ```bash
-# Construction rapide avec mock TA-Lib
 make build-fast
 # ou
 ./build-docker.sh --use-mock-talib
-
-# Construction minimale (composants essentiels seulement)
-make build-minimal
-# ou
-./build-docker.sh --essential-only --use-mock-talib
-
-# Sauter les dépendances lourdes comme TensorFlow/PyTorch
-./build-docker.sh --skip-tensorflow --skip-torch
 ```
 
-> **Note**: Pour plus de détails sur les options de build optimisées, consultez le [Guide de Build Docker](DOCKER_BUILD_GUIDE.md).
+4. Constructions spécifiques pour ARM64 (Apple Silicon) :
 
-3. Lancement du conteneur :
+```bash
+# Construction optimisée pour ARM64
+make build-arm64
+# ou
+./docker/build-arm64.sh
+
+# Construction rapide avec mock TA-Lib pour ARM64
+make build-arm64-mock
+# ou
+./docker/build-arm64.sh --use-mock-talib
+
+# Construction minimale pour ARM64
+make build-arm64-minimal
+# ou
+./docker/build-arm64.sh --essential-only
+```
+
+5. Recommandation automatique de la meilleure méthode de build :
+
+```bash
+# Obtenir une recommandation personnalisée basée sur votre système
+make recommend-build
+# ou
+./recommend-build.sh
+```
+
+Pour plus de détails sur les builds ARM64, consultez [ARM64_BUILD_GUIDE.md](ARM64_BUILD_GUIDE.md).
+
+5. Lancement du conteneur :
 
 6. Lancez l'API :
 

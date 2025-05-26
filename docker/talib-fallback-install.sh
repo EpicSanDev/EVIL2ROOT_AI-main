@@ -3,326 +3,401 @@ set -e
 
 echo "=== Installation de secours pour TA-Lib ==="
 
+# Fonction pour afficher les bandeaux
+print_banner() {
+    echo
+    echo "==============================================="
+    echo "  $1"
+    echo "==============================================="
+    echo
+}
+
 # Installer les dépendances système nécessaires
+print_banner "Installation des dépendances"
 apt-get update
-apt-get install -y --no-install-recommends wget build-essential gcc g++ make pkg-config git
+apt-get install -y --no-install-recommends wget build-essential gcc g++ make pkg-config git curl ca-certificates autoconf libtool
 
 # Créer un répertoire temporaire
 TEMP_DIR=$(mktemp -d)
 cd "$TEMP_DIR"
 
-# Télécharger une version spécifique de TA-Lib source
-echo "Téléchargement de TA-Lib 0.4.0..."
-wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
-tar -xzf ta-lib-0.4.0-src.tar.gz
-
-# Compiler et installer TA-Lib avec une configuration minimale
-cd ta-lib/
-echo "Compilation de TA-Lib avec configuration minimale..."
-./configure --prefix=/usr --disable-shared
-make
-make install
-
-# Vérifier l'installation de la bibliothèque
-echo "Vérification de l'installation des bibliothèques et en-têtes:"
-find /usr -name "libta_lib*"
-find /usr -name "ta_*.h"
-
-# Créer des liens symboliques
-ln -sf /usr/lib/libta_lib.a /usr/lib/libta_lib.so
-echo "/usr/lib" > /etc/ld.so.conf.d/talib.conf
-ldconfig
-
-# Installation des dépendances Python
-pip install --no-cache-dir numpy==1.24.3 Cython setuptools wheel
-
-# Approche 1: Installation directe avec pip
-echo "Tentative d'installation avec pip et chemins explicites..."
-if pip install --no-cache-dir --global-option=build_ext --global-option="-I/usr/include/" --global-option="-L/usr/lib/" TA-Lib==0.4.28; then
-    echo "✅ TA-Lib installé avec succès via pip avec options explicites"
-    python -c "import talib; print('TA-Lib importé avec succès!')"
-    exit 0
+# Détection de l'architecture
+ARCH=$(uname -m)
+echo "Architecture détectée: $ARCH"
+IS_ARM64=false
+if [[ "$ARCH" == "aarch64" || "$ARCH" == "arm64" ]]; then
+    IS_ARM64=true
+    echo "Configuration pour ARM64 activée"
 fi
 
-# Approche 2: Création d'un wrapper minimaliste
-echo "Création d'un wrapper minimaliste pour TA-Lib..."
-cd "$TEMP_DIR"
-mkdir -p simple_talib
-cd simple_talib
-
-# Créer un setup.py minimal
-cat > setup.py << EOF
-from setuptools import setup, Extension
-import numpy
-
-talib_extension = Extension(
-    'talib._ta_lib',
-    ['_ta_lib.c'],
-    include_dirs=[numpy.get_include(), '/usr/include', '/usr/local/include', '/usr/include/ta-lib'],
-    library_dirs=['/usr/lib', '/usr/local/lib'],
-    libraries=['ta_lib'],
-    define_macros=[('TA_DICT_KEY', '"string"')]
-)
-
-setup(
-    name='talib',
-    version='0.4.28',
-    packages=['talib'],
-    ext_modules=[talib_extension],
-    author='Minimal TA-Lib Wrapper',
-    author_email='support@example.com',
-    description='Minimal wrapper for TA-Lib',
-)
-EOF
-
-# Créer une implémentation minimaliste
-mkdir -p talib
-cat > talib/__init__.py << EOF
-from ._ta_lib import *
-
-def get_functions():
-    """
-    Returns a list of all available indicator functions.
-    """
-    import talib
-    return [f for f in dir(talib) if not f.startswith('_')]
-
-def get_function_groups():
-    """
-    Returns a dict with keys being group names and values being lists
-    of function names. Similar to Function Browser in TA-Lib.
-    """
-    return {
-        'Momentum Indicators': ['RSI', 'MACD', 'MOM'],
-        'Volume Indicators': ['AD', 'ADOSC', 'OBV'],
-        'Volatility Indicators': ['ATR', 'NATR'],
-        'Price Transform': ['AVGPRICE', 'TYPPRICE', 'WCLPRICE'],
-        'Cycle Indicators': ['HT_DCPERIOD', 'HT_DCPHASE'],
-        'Pattern Recognition': ['CDL2CROWS', 'CDL3BLACKCROWS'],
-        'Statistic Functions': ['BETA', 'CORREL', 'LINEARREG'],
-        'Math Operators': ['ADD', 'DIV', 'MAX', 'MIN'],
-        'Math Transform': ['ACOS', 'ASIN', 'ATAN', 'CEIL'],
+# Télécharger une version spécifique de TA-Lib source
+print_banner "Téléchargement de TA-Lib 0.4.0"
+wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz -O ta-lib.tar.gz || {
+    echo "Échec du téléchargement depuis SourceForge, essai avec GitHub..."
+    wget https://github.com/TA-Lib/ta-lib/archive/refs/tags/v0.4.0.tar.gz -O ta-lib.tar.gz || {
+        echo "Échec du téléchargement. Tentative avec un miroir alternatif..."
+        curl -L https://anaconda.org/conda-forge/ta-lib/0.4.0/download/linux-64/ta-lib-0.4.0-h516909a_0.tar.bz2 -o ta-lib.tar.bz2
+        mkdir -p ta-lib-extract
+        tar -xjf ta-lib.tar.bz2 -C ta-lib-extract
+        cd ta-lib-extract
+        # Installer depuis les binaires précompilés
+        if [ -d "lib" ]; then
+            cp -r lib/* /usr/lib/ || true
+        fi
+        if [ -d "include" ]; then
+            cp -r include/* /usr/include/ || true
+        fi
+        
+        # Vérifier si l'installation a réussi
+        if [ -f "/usr/lib/libta_lib.so" ] || [ -f "/usr/lib/libta_lib.a" ]; then
+            print_banner "Installation depuis les binaires précompilés réussie"
+            ldconfig
+            mkdir -p /usr/include/ta-lib
+            cp -r /usr/include/ta_*.h /usr/include/ta-lib/ 2>/dev/null || true
+            cd "$TEMP_DIR"
+            # Passer à l'installation Python
+            goto_python_install
+        else
+            echo "Échec de l'installation depuis les binaires précompilés."
+            cd "$TEMP_DIR"
+        fi
     }
-EOF
-
-# Créer un fichier C minimaliste qui exposera seulement les fonctions les plus courantes
-cat > _ta_lib.c << EOF
-#define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
-#include <Python.h>
-#include <numpy/arrayobject.h>
-#include <ta-lib/ta_libc.h>
-
-/* Wrapper functions for TA-Lib */
-
-static PyObject* talib_MA(PyObject* self, PyObject* args) {
-    PyArrayObject *real, *outreal;
-    int length, timeperiod;
-    int matype = TA_MAType_SMA;
-    TA_RetCode ret;
-    int outbegidx, outnbelement;
-
-    if (!PyArg_ParseTuple(args, "Oii", &real, &timeperiod, &matype))
-        return NULL;
-
-    length = PyArray_SIZE(real);
-    outreal = (PyArrayObject*)PyArray_SimpleNew(1, PyArray_DIMS(real), NPY_DOUBLE);
-
-    ret = TA_MA(0, length-1, (double*)PyArray_DATA(real),
-                timeperiod, matype,
-                &outbegidx, &outnbelement, (double*)PyArray_DATA(outreal));
-
-    if (ret != TA_SUCCESS) {
-        Py_DECREF(outreal);
-        PyErr_SetString(PyExc_RuntimeError, "TA_MA failed");
-        return NULL;
-    }
-
-    return (PyObject*)outreal;
 }
 
-static PyObject* talib_SMA(PyObject* self, PyObject* args) {
-    PyArrayObject *real, *outreal;
-    int length, timeperiod;
-    TA_RetCode ret;
-    int outbegidx, outnbelement;
-
-    if (!PyArg_ParseTuple(args, "Oi", &real, &timeperiod))
-        return NULL;
-
-    length = PyArray_SIZE(real);
-    outreal = (PyArrayObject*)PyArray_SimpleNew(1, PyArray_DIMS(real), NPY_DOUBLE);
-
-    ret = TA_MA(0, length-1, (double*)PyArray_DATA(real),
-                timeperiod, TA_MAType_SMA,
-                &outbegidx, &outnbelement, (double*)PyArray_DATA(outreal));
-
-    if (ret != TA_SUCCESS) {
-        Py_DECREF(outreal);
-        PyErr_SetString(PyExc_RuntimeError, "TA_MA (SMA) failed");
-        return NULL;
-    }
-
-    return (PyObject*)outreal;
-}
-
-static PyObject* talib_RSI(PyObject* self, PyObject* args) {
-    PyArrayObject *real, *outrsi;
-    int length, timeperiod;
-    TA_RetCode ret;
-    int outbegidx, outnbelement;
-
-    if (!PyArg_ParseTuple(args, "Oi", &real, &timeperiod))
-        return NULL;
-
-    length = PyArray_SIZE(real);
-    outrsi = (PyArrayObject*)PyArray_SimpleNew(1, PyArray_DIMS(real), NPY_DOUBLE);
-
-    ret = TA_RSI(0, length-1, (double*)PyArray_DATA(real),
-                timeperiod, &outbegidx, &outnbelement, (double*)PyArray_DATA(outrsi));
-
-    if (ret != TA_SUCCESS) {
-        Py_DECREF(outrsi);
-        PyErr_SetString(PyExc_RuntimeError, "TA_RSI failed");
-        return NULL;
-    }
-
-    return (PyObject*)outrsi;
-}
-
-/* Module definition */
-
-static PyMethodDef TalibMethods[] = {
-    {"MA", talib_MA, METH_VARARGS, "Moving Average"},
-    {"SMA", talib_SMA, METH_VARARGS, "Simple Moving Average"},
-    {"RSI", talib_RSI, METH_VARARGS, "Relative Strength Index"},
-    {NULL, NULL, 0, NULL}
-};
-
-static struct PyModuleDef talibmodule = {
-    PyModuleDef_HEAD_INIT,
-    "_ta_lib",
-    "Python wrapper for TA-Lib",
-    -1,
-    TalibMethods
-};
-
-PyMODINIT_FUNC PyInit__ta_lib(void) {
-    PyObject *m;
-    import_array();  // Initialize NumPy
-    m = PyModule_Create(&talibmodule);
-    if (m == NULL)
-        return NULL;
-    return m;
-}
-EOF
-
-# Installer le wrapper
-echo "Installation du wrapper minimaliste..."
-pip install -e .
-
-# Vérifier l'installation
-echo "Vérification de l'installation..."
-if python -c "import talib; print('Fonctions disponibles:', talib.get_functions())"; then
-    echo "✅ Wrapper TA-Lib minimal installé avec succès"
-    exit 0
-else
-    echo "❌ Échec de l'installation du wrapper minimaliste"
-    
-    # Dernière tentative - créer un module factice
-    echo "Création d'un module TA-Lib factice..."
-    cd "$TEMP_DIR"
-    mkdir -p talib_mock/talib
-    
-    # Créer un fichier d'initialisation factice
-    cat > talib_mock/talib/__init__.py << EOF
-import numpy as np
-import warnings
-
-warnings.warn("Utilisation d'une implémentation factice de TA-Lib. Les fonctionnalités seront limitées.")
-
-# Implémentations de base des fonctions les plus courantes
-def SMA(real, timeperiod=30):
-    real = np.asarray(real)
-    return np.convolve(real, np.ones(timeperiod)/timeperiod, mode='same')
-
-def EMA(real, timeperiod=30):
-    real = np.asarray(real)
-    alpha = 2 / (timeperiod + 1)
-    result = np.zeros_like(real)
-    result[0] = real[0]
-    for i in range(1, len(real)):
-        result[i] = alpha * real[i] + (1 - alpha) * result[i-1]
-    return result
-
-def RSI(real, timeperiod=14):
-    real = np.asarray(real)
-    diff = np.diff(real)
-    gains = np.copy(diff)
-    losses = np.copy(diff)
-    gains[gains < 0] = 0
-    losses[losses > 0] = 0
-    losses = -losses
-    
-    avg_gain = np.mean(gains[:timeperiod])
-    avg_loss = np.mean(losses[:timeperiod])
-    
-    if avg_loss == 0:
-        return np.ones_like(real) * 100
-    
-    rs = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-    
-    rsi_result = np.zeros_like(real)
-    rsi_result[timeperiod:] = rsi
-    return rsi_result
-
-def MACD(real, fastperiod=12, slowperiod=26, signalperiod=9):
-    real = np.asarray(real)
-    ema_fast = EMA(real, fastperiod)
-    ema_slow = EMA(real, slowperiod)
-    macd_line = ema_fast - ema_slow
-    signal_line = EMA(macd_line, signalperiod)
-    histogram = macd_line - signal_line
-    return macd_line, signal_line, histogram
-
-def MA(real, timeperiod=30, matype=0):
-    return SMA(real, timeperiod)
-
-def get_functions():
-    return ['SMA', 'EMA', 'RSI', 'MACD', 'MA']
-
-def get_function_groups():
-    return {
-        'Momentum Indicators': ['RSI', 'MACD'],
-        'Overlap Studies': ['SMA', 'EMA', 'MA'],
-    }
-EOF
-
-    # Créer un setup.py pour le module factice
-    cat > talib_mock/setup.py << EOF
-from setuptools import setup
-
-setup(
-    name='ta-lib',
-    version='0.4.28',
-    packages=['talib'],
-    install_requires=['numpy'],
-    author='Factice TA-Lib',
-    author_email='support@example.com',
-    description='Implémentation factice de TA-Lib',
-)
-EOF
-
-    # Installer le module factice
-    cd talib_mock
-    pip install .
-    
-    # Vérifier l'installation
-    if python -c "import talib; print('Module factice de TA-Lib importé avec succès!')"; then
-        echo "⚠️ Module factice TA-Lib installé comme solution de dernier recours"
-        exit 0
+# Extraire l'archive
+if [ -f ta-lib.tar.gz ]; then
+    tar -xzf ta-lib.tar.gz
+    # Vérifier si le dossier est nommé ta-lib ou ta-lib-0.4.0
+    if [ -d ta-lib ]; then
+        cd ta-lib
+    elif [ -d ta-lib-0.4.0 ]; then
+        cd ta-lib-0.4.0
     else
-        echo "❌ Impossible d'installer même un module factice"
-        exit 1
+        echo "Structure de dossier inattendue. Recherche du dossier ta-lib..."
+        TA_LIB_DIR=$(find . -type d -name "ta-lib*" | head -1)
+        if [ -n "$TA_LIB_DIR" ]; then
+            cd "$TA_LIB_DIR"
+        else
+            echo "Impossible de trouver le dossier ta-lib."
+            exit 1
+        fi
     fi
+else
+    echo "L'archive TA-Lib n'a pas été téléchargée correctement."
+    exit 1
+fi
+
+# Mettre à jour les scripts de détection d'architecture
+print_banner "Mise à jour des scripts de détection d'architecture"
+mkdir -p config
+echo "Téléchargement des scripts config.guess et config.sub pour ARM64..."
+curl -s -o config/config.guess 'https://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.guess;hb=HEAD' || {
+    echo "Échec du téléchargement depuis git.savannah. Essai avec GitHub..."
+    curl -s -o config/config.guess 'https://raw.githubusercontent.com/gcc-mirror/gcc/master/config.guess'
+}
+
+curl -s -o config/config.sub 'https://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.sub;hb=HEAD' || {
+    echo "Échec du téléchargement depuis git.savannah. Essai avec GitHub..."
+    curl -s -o config/config.sub 'https://raw.githubusercontent.com/gcc-mirror/gcc/master/config.sub'
+}
+
+chmod +x config/config.guess config/config.sub
+
+# Vérifier que les fichiers sont valides
+if [ ! -s config/config.guess ] || [ ! -s config/config.sub ]; then
+    echo "Les fichiers config.guess ou config.sub n'ont pas été téléchargés correctement."
+    echo "Création de versions minimales locales..."
+    
+    # Créer un script config.guess minimal
+    cat > config/config.guess << 'EOF'
+#!/bin/sh
+cpu=$(uname -m)
+os=$(uname -s | tr '[:upper:]' '[:lower:]')
+echo "${cpu}-unknown-${os}"
+EOF
+    chmod +x config/config.guess
+    
+    # Créer un script config.sub minimal qui accepte ARM64
+    cat > config/config.sub << 'EOF'
+#!/bin/sh
+echo $1 | sed 's/aarch64-unknown-linux-gnu/aarch64-unknown-linux-gnu/'
+EOF
+    chmod +x config/config.sub
+fi
+
+# Fonction pour nettoyer après une tentative échouée
+cleanup_and_retry() {
+    echo "Nettoyage pour nouvelle tentative..."
+    make clean >/dev/null 2>&1 || true
+    find . -name "*.o" -delete
+    find . -name "*.lo" -delete
+    find . -name "*.la" -delete
+    find . -name "*.a" -delete
+    find . -name "*.Tpo" -delete
+    find . -name ".deps" -type d -exec rm -rf {} + 2>/dev/null || true
+    find . -name ".libs" -type d -exec rm -rf {} + 2>/dev/null || true
+}
+
+# Compiler et installer TA-Lib avec une configuration adaptée à l'architecture
+print_banner "Compilation de TA-Lib"
+
+# Options de configuration spécifiques à l'architecture
+CONFIG_OPTS="--prefix=/usr"
+
+if [ "$IS_ARM64" = "true" ]; then
+    print_banner "Configuration spécifique pour ARM64"
+    CONFIG_OPTS="$CONFIG_OPTS --build=aarch64-unknown-linux-gnu"
+    
+    # Optimisations pour ARM64
+    export CFLAGS="-O3 -pipe -fomit-frame-pointer -march=armv8-a+crc -mcpu=generic"
+    export CXXFLAGS="$CFLAGS"
+    
+    # Ajouter des options pour éviter des problèmes spécifiques à ARM64
+    CONFIG_OPTS="$CONFIG_OPTS --disable-dependency-tracking"
+else
+    # Optimisations génériques
+    export CFLAGS="-O2 -pipe"
+    export CXXFLAGS="$CFLAGS"
+fi
+
+# Stratégies de compilation progressives
+COMPILE_SUCCESS=false
+
+# Stratégie 1: Configuration standard avec bibliothèques partagées désactivées
+print_banner "Tentative 1: Configuration avec bibliothèques statiques uniquement"
+CONFIG_OPTS="$CONFIG_OPTS --disable-shared --enable-static"
+
+echo "Configuration: ./configure $CONFIG_OPTS"
+./configure $CONFIG_OPTS
+
+echo "Compilation avec parallélisme..."
+if make -j$(nproc); then
+    COMPILE_SUCCESS=true
+    echo "Compilation réussie avec la stratégie 1!"
+else
+    echo "Échec de la compilation avec la stratégie 1."
+    
+    # Stratégie 2: Configuration minimale avec un seul thread
+    print_banner "Tentative 2: Configuration minimale"
+    cleanup_and_retry
+    
+    CONFIG_OPTS="$CONFIG_OPTS --without-docs"
+    echo "Configuration: ./configure $CONFIG_OPTS"
+    ./configure $CONFIG_OPTS
+    
+    echo "Compilation avec un seul thread..."
+    if make -j1; then
+        COMPILE_SUCCESS=true
+        echo "Compilation réussie avec la stratégie 2!"
+    else
+        echo "Échec de la compilation avec la stratégie 2."
+        
+        # Stratégie 3: Configuration ultra-minimale avec patches
+        print_banner "Tentative 3: Configuration ultra-minimale avec patches"
+        cleanup_and_retry
+        
+        # Appliquer des patches pour corriger des problèmes potentiels
+        echo "Application de patches..."
+        
+        # Patch pour src/ta_common/ta_global.c (problème connu sur ARM64)
+        if [ -f src/ta_common/ta_global.c ]; then
+            echo "Patching ta_global.c..."
+            sed -i 's/TA_FIT_FUNCTION( ta_gDataTable/TA_INTERNAL_FUNCTION(void) TA_FIT_FUNCTION( TA_GlobalTable/' src/ta_common/ta_global.c || true
+        fi
+        
+        # Patch pour src/ta_common/ta_defs.c
+        if [ -f src/ta_common/ta_defs.c ]; then
+            echo "Patching ta_defs.c..."
+            sed -i 's/int64_t/int64_t;/g' src/ta_common/ta_defs.c || true
+        fi
+        
+        # Régénérer les fichiers autoconf si nécessaire
+        if [ -f autogen.sh ]; then
+            echo "Régénération des fichiers autoconf..."
+            ./autogen.sh || true
+        fi
+        
+        # Utiliser une configuration encore plus minimale
+        CONFIG_OPTS="--prefix=/usr --disable-shared --enable-static --without-docs --disable-dependency-tracking"
+        if [ "$IS_ARM64" = "true" ]; then
+            CONFIG_OPTS="$CONFIG_OPTS --build=aarch64-unknown-linux-gnu"
+        fi
+        
+        echo "Configuration: ./configure $CONFIG_OPTS"
+        ./configure $CONFIG_OPTS
+        
+        # Compilation avec options extrêmes
+        export CFLAGS="$CFLAGS -DNDEBUG -DTA_DISABLE_THREADS"
+        export MAKEFLAGS="-j1"
+        
+        echo "Compilation avec options extrêmes..."
+        if make; then
+            COMPILE_SUCCESS=true
+            echo "Compilation réussie avec la stratégie 3!"
+        else
+            echo "Échec de toutes les stratégies de compilation."
+            
+            if [ "$IS_ARM64" = "true" ] && [ -f /tmp/talib-arm64-mock.sh ]; then
+                print_banner "Utilisation du fallback Mock pour ARM64"
+                /tmp/talib-arm64-mock.sh
+                exit $?
+            else
+                echo "Impossible de compiler TA-Lib."
+                exit 1
+            fi
+        fi
+    fi
+fi
+
+# Installer la bibliothèque
+if [ "$COMPILE_SUCCESS" = "true" ]; then
+    print_banner "Installation de TA-Lib"
+    make install
+    
+    # Configurer correctement les bibliothèques
+    echo "Configuration des liens symboliques..."
+    mkdir -p /usr/include/ta-lib
+    
+    # Copier les en-têtes vers le dossier standard
+    cp -r src/ta_common/*.h /usr/include/ta-lib/ 2>/dev/null || true
+    cp -r include/*.h /usr/include/ta-lib/ 2>/dev/null || true
+    cp -r /usr/include/ta_*.h /usr/include/ta-lib/ 2>/dev/null || true
+    
+    # Créer les liens symboliques si nécessaire
+    if [ -f /usr/lib/libta_lib.so.0 ]; then
+        ln -sf /usr/lib/libta_lib.so.0 /usr/lib/libta_lib.so
+        ln -sf /usr/lib/libta_lib.so.0 /usr/lib/libta-lib.so
+    fi
+    
+    # Créer aussi des liens pour les bibliothèques statiques
+    if [ -f /usr/lib/libta_lib.a ]; then
+        ln -sf /usr/lib/libta_lib.a /usr/lib/libta-lib.a
+    fi
+    
+    # Mettre à jour le cache des bibliothèques
+    echo "/usr/lib" > /etc/ld.so.conf.d/talib.conf
+    ldconfig
+    
+    # Vérification
+    print_banner "Vérification de l'installation C"
+    ls -la /usr/lib/libta* || echo "Avertissement: Aucune bibliothèque trouvée!"
+    ls -la /usr/include/ta-lib/ || echo "Avertissement: Aucun en-tête trouvé!"
+fi
+
+# Fonction pour passer à l'installation du wrapper Python
+goto_python_install() {
+    print_banner "Installation du wrapper Python TA-Lib"
+    
+    # Installer les pré-requis
+    pip install --no-cache-dir --upgrade pip wheel setuptools Cython numpy==1.24.3
+    
+    # Différentes stratégies d'installation
+    
+    # Stratégie 1: Installation via Anaconda (pré-compilé)
+    echo "Tentative d'installation depuis le canal Anaconda..."
+    if [ "$IS_ARM64" = "true" ]; then
+        # Canaux spécifiques pour ARM64
+        pip install --no-cache-dir --extra-index-url https://pypi.anaconda.org/scipy-wheels-nightly/simple \
+                                --extra-index-url https://pypi.anaconda.org/ranaroussi/simple ta-lib==0.4.28
+    else
+        pip install --no-cache-dir --index-url https://pypi.anaconda.org/ranaroussi/simple ta-lib==0.4.28
+    fi
+    
+    # Vérifier si l'installation a réussi
+    if python -c "import talib; print('TA-Lib importé avec succès!')" 2>/dev/null; then
+        print_banner "✅ TA-Lib installé avec succès depuis Anaconda"
+        return 0
+    fi
+    
+    # Stratégie 2: Installation depuis GitHub
+    echo "Tentative d'installation depuis GitHub..."
+    pip install --no-cache-dir git+https://github.com/TA-Lib/ta-lib-python.git@0.4.28
+    
+    # Vérifier si l'installation a réussi
+    if python -c "import talib; print('TA-Lib importé avec succès!')" 2>/dev/null; then
+        print_banner "✅ TA-Lib installé avec succès depuis GitHub"
+        return 0
+    fi
+    
+    # Stratégie 3: Installation manuelle optimisée
+    echo "Tentative d'installation manuelle optimisée..."
+    cd "$TEMP_DIR"
+    git clone https://github.com/TA-Lib/ta-lib-python.git
+    cd ta-lib-python
+    
+    # Modifier setup.py pour utiliser les bons chemins
+    sed -i 's|include_dirs=\[\]|include_dirs=["/usr/include", "/usr/include/ta-lib", "/usr/local/include"]|g' setup.py
+    sed -i 's|library_dirs=\[\]|library_dirs=["/usr/lib", "/usr/local/lib"]|g' setup.py
+    
+    # Optimisations d'architecture
+    if [ "$IS_ARM64" = "true" ]; then
+        echo "Ajout d'optimisations ARM64 dans setup.py..."
+        sed -i 's|extra_compile_args=\[\]|extra_compile_args=["-O3", "-march=armv8-a+crc", "-mcpu=generic"]|g' setup.py
+    else
+        sed -i 's|extra_compile_args=\[\]|extra_compile_args=["-O3"]|g' setup.py
+    fi
+    
+    # Corriger les problèmes de compatibilité NumPy
+    if grep -q "PyArray_Descr" talib/_ta_lib.c 2>/dev/null; then
+        echo "Correction de problèmes de compatibilité avec NumPy..."
+        sed -i 's/if (d->subarray)/if (PyDataType_HASSUBARRAY(d))/' talib/_ta_lib.c || true
+    fi
+    
+    # Installation
+    if [ "$IS_ARM64" = "true" ]; then
+        CFLAGS="-I/usr/include -I/usr/include/ta-lib -O3 -march=armv8-a+crc" \
+        LDFLAGS="-L/usr/lib" \
+        pip install --no-cache-dir --verbose .
+    else
+        CFLAGS="-I/usr/include -I/usr/include/ta-lib -O3" \
+        LDFLAGS="-L/usr/lib" \
+        pip install --no-cache-dir --verbose .
+    fi
+    
+    # Vérifier si l'installation a réussi
+    if python -c "import talib; print('TA-Lib importé avec succès!')" 2>/dev/null; then
+        print_banner "✅ TA-Lib installé avec succès via installation manuelle"
+        return 0
+    fi
+    
+    # Stratégie 4: Options explicites via pip
+    echo "Tentative avec options explicites de pip..."
+    cd "$TEMP_DIR"
+    
+    # Dernière tentative
+    if [ "$IS_ARM64" = "true" ]; then
+        pip install --no-cache-dir --global-option=build_ext \
+                    --global-option="-I/usr/include/" \
+                    --global-option="-I/usr/include/ta-lib/" \
+                    --global-option="-L/usr/lib/" \
+                    --global-option="-march=armv8-a+crc" \
+                    TA-Lib==0.4.28
+    else
+        pip install --no-cache-dir --global-option=build_ext \
+                    --global-option="-I/usr/include/" \
+                    --global-option="-I/usr/include/ta-lib/" \
+                    --global-option="-L/usr/lib/" \
+                    TA-Lib==0.4.28
+    fi
+    
+    # Vérification finale
+    if python -c "import talib; print('TA-Lib importé avec succès!')" 2>/dev/null; then
+        print_banner "✅ TA-Lib installé avec succès via pip avec options explicites"
+        return 0
+    fi
+    
+    # Si tout a échoué pour ARM64, utiliser le mock
+    if [ "$IS_ARM64" = "true" ] && [ -f /tmp/talib-arm64-mock.sh ]; then
+        print_banner "❌ Échec de toutes les méthodes d'installation, utilisation du mock ARM64"
+        /tmp/talib-arm64-mock.sh
+        return $?
+    fi
+    
+    print_banner "❌ Toutes les tentatives d'installation ont échoué"
+    return 1
+}
+
+# Installation du wrapper Python si la compilation a réussi
+if [ "$COMPILE_SUCCESS" = "true" ]; then
+    goto_python_install
 fi

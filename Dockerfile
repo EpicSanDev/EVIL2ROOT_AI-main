@@ -4,7 +4,10 @@ FROM python:3.10-slim as builder
 WORKDIR /app
 
 # Variables d'environnement pour le build
-ENV PYTHONDONTWRITEBYTECODE=1 \
+ENV PYTHONDONTWRITEBYTECODE=# Copier les bibliothèques TA-Lib si elles ont été installées
+RUN mkdir -p /usr/include/ta-lib
+COPY --from=builder /usr/lib/libta_lib* /usr/lib/ || echo "Pas de librairies TA-Lib à copier"
+COPY --from=builder /usr/include/ta-lib/ /usr/include/ta-lib/ || echo "Pas d'en-têtes TA-Lib à copier"
     PYTHONUNBUFFERED=1 \
     PIP_DEFAULT_TIMEOUT=100 \
     PYTHONIOENCODING=UTF-8
@@ -13,6 +16,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 ARG USE_TALIB_MOCK=false
 ARG INSTALL_FULL_DEPS=true
 ARG SKIP_OPTIONAL_DEPS=false
+ARG TARGETARCH=amd64
 
 # Copie des fichiers requirements et scripts de correction
 COPY requirements.txt requirements-essential.txt ./
@@ -135,8 +139,8 @@ COPY --from=builder /usr/local/lib/python3.10/site-packages/ /usr/local/lib/pyth
 COPY --from=builder /usr/local/bin/ /usr/local/bin/
 
 # Copier les bibliothèques TA-Lib si elles ont été installées
-COPY --from=builder /usr/lib/libta_lib* /usr/lib/ 2>/dev/null || true
-COPY --from=builder /usr/include/ta-lib/ /usr/include/ta-lib/ 2>/dev/null || true
+COPY --from=builder /usr/lib/libta_lib* /usr/lib/ 2>/dev/null || :
+COPY --from=builder /usr/include/ta-lib/ /usr/include/ta-lib/ 2>/dev/null || :
 
 # Copier le code de l'application depuis le stage builder
 COPY --from=builder /app/app/ ./app/

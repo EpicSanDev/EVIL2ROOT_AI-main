@@ -1,7 +1,4 @@
-# dockerfile: /Users/bastienjavaux/Documents/Trading/EVIL2ROOT_AI-main/Dockerfile.talib-base
-# Ce Dockerfile crée une image de base avec TA-Lib préinstallé
-
-FROM python:3.10-slim as talib-base
+FROM python:3.10-slim
 
 WORKDIR /app
 
@@ -30,7 +27,7 @@ RUN apt-get update && \
         curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Télécharger et installer TA-Lib avec correctifs pour ARM64
+# Télécharger et installer TA-Lib avec optimisations pour ARM64
 RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz && \
     tar -xzf ta-lib-0.4.0-src.tar.gz && \
     cd ta-lib/ && \
@@ -39,7 +36,7 @@ RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz && \
     curl -o config/config.sub 'https://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.sub;hb=HEAD' && \
     chmod +x config/config.guess config/config.sub && \
     # Configuration et compilation
-    ./configure --prefix=/usr && \
+    ./configure --prefix=/usr --host=aarch64-unknown-linux-gnu && \
     make -j$(nproc) && \
     make install && \
     cd .. && \
@@ -48,13 +45,20 @@ RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz && \
 # Installer le wrapper Python pour TA-Lib
 RUN pip install --no-cache-dir --upgrade pip wheel setuptools && \
     pip install --no-cache-dir numpy Cython && \
-    # Installation du wrapper Python pour TA-Lib avec options explicites
-    TALIB_USE_NATIVE=1 pip install --no-cache-dir TA-Lib==0.4.28 || \
-    pip install --no-cache-dir --global-option=build_ext --global-option="-I/usr/include/" --global-option="-L/usr/lib/" TA-Lib==0.4.28 && \
+    # Installation du wrapper Python pour TA-Lib avec options explicites pour ARM64
+    env ARCHFLAGS="-arch arm64" TALIB_USE_NATIVE=1 pip install --no-cache-dir TA-Lib==0.4.28 || \
+    env ARCHFLAGS="-arch arm64" pip install --no-cache-dir --global-option=build_ext --global-option="-I/usr/include/" --global-option="-L/usr/lib/" TA-Lib==0.4.28 && \
     # Vérifier l'installation
-    python -c "import talib; print('TA-Lib importé avec succès!')"
+    python -c "import talib; print('TA-Lib importé avec succès sur ARM64!')"
+
+# Créer un script de vérification
+RUN echo '#!/bin/bash\npython -c "import talib; print(\"TA-Lib version:\", talib.__version__); print(\"Fonctions disponibles:\", dir(talib)[:5])"' > /usr/local/bin/verify-talib.sh && \
+    chmod +x /usr/local/bin/verify-talib.sh
 
 # Nettoyer pour réduire la taille de l'image
 RUN apt-get clean && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Définir la commande par défaut pour vérifier l'installation
+CMD ["python", "-c", "import talib; print('TA-Lib fonctionne correctement sur ARM64!')"]

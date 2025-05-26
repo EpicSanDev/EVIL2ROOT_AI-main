@@ -1,5 +1,5 @@
 # EVIL2ROOT Trading Bot - Docker operations
-.PHONY: build up down logs ps clean restart purge backup test shell build-fast build-minimal build-no-cache build-monitored
+.PHONY: build up down logs ps clean restart purge backup test shell build-fast build-minimal build-no-cache build-monitored build-arm64 build-arm64-minimal build-arm64-mock recommend-build
 
 # Default target when just running 'make'
 all: up
@@ -23,6 +23,22 @@ build-minimal:
 # Build without using Docker cache
 build-no-cache:
 	./build-docker.sh --no-cache
+
+# ARM64-specific build targets
+build-arm64:
+	./docker/build-arm64.sh
+
+# Minimal dependencies build for ARM64
+build-arm64-minimal:
+	./docker/build-arm64.sh --essential-only
+
+# ARM64 build with mock TA-Lib (fastest for Apple Silicon)
+build-arm64-mock:
+	./docker/build-arm64.sh --use-mock-talib
+
+# Get a recommendation for the best build method for your system
+recommend-build:
+	./recommend-build.sh
 
 # Start the application with detached mode (running in background)
 up:
