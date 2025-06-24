@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
 from app.models.position_manager import PositionManager
-from app.trading import TradingBot, DataManager
+from src.core.trading import TradingBot, DataManager
 
 class TestTradingPerformance:
     

@@ -1,115 +1,90 @@
-# EVIL2ROOT Trading Bot - Docker operations
-.PHONY: build up down logs ps clean restart purge backup test shell build-fast build-minimal build-no-cache build-monitored build-arm64 build-arm64-minimal build-arm64-mock recommend-build
+# EVIL2ROOT Trading Bot Makefile
 
-# Default target when just running 'make'
-all: up
+.PHONY: help install test clean start stop logs build deploy
 
-# Build or rebuild the Docker containers
-build:
-	docker compose build
+help:
+	@echo "EVIL2ROOT Trading Bot - Available commands:"
+	@echo "  install    - Install dependencies and setup environment"
+	@echo "  test       - Run tests"
+	@echo "  clean      - Clean up temporary files"
+	@echo "  start      - Start the trading bot"
+	@echo "  stop       - Stop the trading bot"
+	@echo "  logs       - View logs"
+	@echo "  build      - Build Docker images"
+	@echo "  deploy     - Deploy to production"
 
-# Build with monitoring to prevent timeouts (recommended for CI/CD)
-build-monitored:
-	./monitor-build.sh --timeout 60
+install:
+	python -m pip install --upgrade pip
+	pip install -r requirements.txt
+	python -m nltk.downloader punkt averaged_perceptron_tagger
+	mkdir -p logs data saved_models
 
-# Build with optimized settings for faster build time
-build-fast:
-	./build-docker.sh --use-mock-talib
-
-# Build with minimal dependencies (fastest)
-build-minimal:
-	./build-docker.sh --essential-only --use-mock-talib
-
-# Build without using Docker cache
-build-no-cache:
-	./build-docker.sh --no-cache
-
-# ARM64-specific build targets
-build-arm64:
-	./docker/build-arm64.sh
-
-# Minimal dependencies build for ARM64
-build-arm64-minimal:
-	./docker/build-arm64.sh --essential-only
-
-# ARM64 build with mock TA-Lib (fastest for Apple Silicon)
-build-arm64-mock:
-	./docker/build-arm64.sh --use-mock-talib
-
-# Get a recommendation for the best build method for your system
-recommend-build:
-	./recommend-build.sh
-
-# Start the application with detached mode (running in background)
-up:
-	docker compose up -d
-
-# Start with logs visible
-up-log:
-	docker compose up
-
-# Stop the services
-down:
-	docker compose down
-
-# Show container logs
-logs:
-	docker compose logs -f
-
-# Show logs for a specific service
-# Usage: make logs-SERVICE (e.g. make logs-trading-bot)
-logs-%:
-	docker compose logs -f $*
-
-# Display the status of containers
-ps:
-	docker compose ps
-
-# Remove volumes, cached data (full reset)
-clean:
-	docker compose down -v
-
-# Restart all services
-restart:
-	docker compose restart
-
-# Restart a specific service
-# Usage: make restart-SERVICE (e.g. make restart-web-ui)
-restart-%:
-	docker compose restart $*
-
-# Warning: Remove all Docker volumes, containers, images related to this project
-purge:
-	docker compose down -v
-	docker volume prune -f
-
-# Create a backup of the database
-backup:
-	docker compose exec database pg_dump -U $(shell grep DB_USER .env | cut -d '=' -f2) \
-		$(shell grep DB_NAME .env | cut -d '=' -f2) > backup_$(shell date +%Y%m%d_%H%M%S).sql
-
-# Run tests inside a container
 test:
-	docker compose run --rm trading-bot python -m unittest discover
+	python -m pytest tests/ -v --cov=src --cov-report=html
 
-# Open a shell in a container
-# Usage: make shell-SERVICE (e.g. make shell-trading-bot)
-shell-%:
-	docker compose exec $* /bin/bash || docker compose exec $* /bin/sh
+clean:
+	find . -type f -name "*.pyc" -delete
+	find . -type d -name "__pycache__" -delete
+	rm -rf .pytest_cache
+	rm -rf htmlcov
+	rm -rf build dist *.egg-info
 
-# Update application code without rebuilding containers
-update:
-	docker compose up -d --no-deps --build trading-bot web-ui ai-validation
+start:
+	./start_trading_bot.sh full
 
-# Watch logs from all services
-watch-all:
-	docker compose logs -f --tail=100
+start-dev:
+	./start_trading_bot.sh dev
 
-# Open database CLI
-db-cli:
-	docker compose exec database psql -U $(shell grep DB_USER .env | cut -d '=' -f2) \
-		-d $(shell grep DB_NAME .env | cut -d '=' -f2)
+stop:
+	./start_trading_bot.sh stop
 
-# Open Redis CLI
-redis-cli:
-	docker compose exec redis redis-cli
+restart:
+	./start_trading_bot.sh restart
+
+logs:
+	./start_trading_bot.sh logs
+
+build:
+	docker build -t evil2root-trading:latest .
+
+build-no-cache:
+	docker build --no-cache -t evil2root-trading:latest .
+
+deploy:
+	docker-compose -f docker-compose.unified.yml up --build -d
+
+deploy-stop:
+	docker-compose -f docker-compose.unified.yml down
+
+deploy-logs:
+	docker-compose -f docker-compose.unified.yml logs -f
+
+# Development commands
+format:
+	black src/ app/ tests/
+	isort src/ app/ tests/
+
+lint:
+	flake8 src/ app/ tests/
+	pylint src/ app/ tests/
+
+check:
+	python -m py_compile unified_main.py
+	python -c "import sys; sys.path.append('.'); import unified_main"
+
+setup-secrets:
+	mkdir -p secrets
+	echo "trading_user" > secrets/db_user.txt
+	echo "trading_pass" > secrets/db_password.txt
+	echo "trading_db" > secrets/postgres_db.txt
+	echo "super_secret_key_change_this" > secrets/secret_key.txt
+	echo "your_telegram_token_here" > secrets/telegram_token.txt
+	echo "your_finnhub_api_key_here" > secrets/finnhub_api_key.txt
+	echo "your_openrouter_api_key_here" > secrets/openrouter_api_key.txt
+	echo "your_coinbase_api_key_here" > secrets/coinbase_api_key.txt
+	echo "your_coinbase_webhook_secret_here" > secrets/coinbase_webhook_secret.txt
+	@echo "⚠️  Remember to update the secret files with your actual credentials!"
+
+docs:
+	python -m pydoc -w unified_main
+	python -m pydoc -w src.core.trading

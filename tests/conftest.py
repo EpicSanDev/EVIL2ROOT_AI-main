@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from app import create_app
-from app.trading import TradingBot, DataManager
+from src.core.trading import TradingBot, DataManager
 
 @pytest.fixture
 def app():
@@ -99,7 +99,7 @@ def position_manager():
 @pytest.fixture
 def trading_bot(data_manager, position_manager):
     """Create a test trading bot with mocked models"""
-    from app.trading import TradingBot
+    from src.core.trading import TradingBot
     
     # Initialize with test balance and provided position manager
     bot = TradingBot(initial_balance=10000.0, position_manager=position_manager)

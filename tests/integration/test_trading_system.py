@@ -1,7 +1,7 @@
 import pytest
 import pandas as pd
 import numpy as np
-from app.trading import TradingBot, DataManager
+from src.core.trading import TradingBot, DataManager
 from app.models.price_prediction import PricePredictionModel
 from app.models.risk_management import RiskManagementModel
 

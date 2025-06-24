@@ -120,7 +120,7 @@ def create_app(testing=False):
     
     # Initialize global objects if not in testing mode
     if not testing:
-        from app.core.trading import TradingBot, DataManager
+        from src.core.trading import TradingBot, DataManager
         global trading_bot, data_manager, position_manager
         
         # Initialiser le PositionManager

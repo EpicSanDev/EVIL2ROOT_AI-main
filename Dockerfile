@@ -4,10 +4,7 @@ FROM python:3.10-slim as builder
 WORKDIR /app
 
 # Variables d'environnement pour le build
-ENV PYTHONDONTWRITEBYTECODE=# Copier les bibliothèques TA-Lib si elles ont été installées
-RUN mkdir -p /usr/include/ta-lib
-COPY --from=builder /usr/lib/libta_lib* /usr/lib/ || echo "Pas de librairies TA-Lib à copier"
-COPY --from=builder /usr/include/ta-lib/ /usr/include/ta-lib/ || echo "Pas d'en-têtes TA-Lib à copier"
+ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DEFAULT_TIMEOUT=100 \
     PYTHONIOENCODING=UTF-8
