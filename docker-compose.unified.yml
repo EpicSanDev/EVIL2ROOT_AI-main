@@ -1,0 +1,247 @@
+version: '3.8'
+
+x-common-env: &common-env
+  DB_HOST: postgres
+  DB_PORT: 5432
+  DB_TYPE: postgresql
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  FLASK_ENV: production
+  LOG_LEVEL: INFO
+  ENABLE_MONITORING: "true"
+  ENABLE_AUTO_LEARNING: "true"
+  USE_TRANSFORMER_MODEL: "true"
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:14-alpine
+    container_name: evil2root-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB_FILE: /run/secrets/postgres_db
+      POSTGRES_USER_FILE: /run/secrets/postgres_user
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$(cat /run/secrets/postgres_user) -d $$(cat /run/secrets/postgres_db)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    secrets:
+      - postgres_db
+      - postgres_user
+      - postgres_password
+    networks:
+      - evil2root-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: evil2root-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - evil2root-network
+
+  # Unified Trading Application
+  trading-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.unified
+    container_name: evil2root-trading-app
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      DB_NAME_FILE: /run/secrets/postgres_db
+      DB_USER_FILE: /run/secrets/db_user
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      SECRET_KEY_FILE: /run/secrets/secret_key
+      RUN_MIGRATIONS: "true"
+    ports:
+      - "5000:5000"  # Flask Web Interface
+      - "8000:8000"  # FastAPI Backend
+    volumes:
+      - ./logs:/app/logs
+      - ./saved_models:/app/saved_models
+      - ./data:/app/data
+      - ./cache:/app/cache
+      - ./.env.production:/app/.env.production:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["--mode", "full", "--config", "/app/.env.production"]
+    secrets:
+      - db_user
+      - db_password
+      - postgres_db
+      - secret_key
+      - telegram_token
+      - openrouter_api_key
+      - finnhub_api_key
+      - coinbase_api_key
+      - coinbase_webhook_secret
+    networks:
+      - evil2root-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health", "||", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Analysis Bot (separate container for better resource management)
+  analysis-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.unified
+    container_name: evil2root-analysis-bot
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      DB_NAME_FILE: /run/secrets/postgres_db
+      DB_USER_FILE: /run/secrets/db_user
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      SECRET_KEY_FILE: /run/secrets/secret_key
+      TELEGRAM_TOKEN_FILE: /run/secrets/telegram_token
+      OPENROUTER_API_KEY_FILE: /run/secrets/openrouter_api_key
+      FINNHUB_API_KEY_FILE: /run/secrets/finnhub_api_key
+    volumes:
+      - ./logs:/app/logs
+      - ./saved_models:/app/saved_models
+      - ./data:/app/data
+      - ./cache:/app/cache
+      - ./.env.production:/app/.env.production:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      trading-app:
+        condition: service_started
+    command: ["--mode", "analysis", "--config", "/app/.env.production"]
+    secrets:
+      - db_user
+      - db_password
+      - postgres_db
+      - secret_key
+      - telegram_token
+      - openrouter_api_key
+      - finnhub_api_key
+    networks:
+      - evil2root-network
+
+  # Frontend (React)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: evil2root-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      trading-app:
+        condition: service_healthy
+    environment:
+      REACT_APP_API_URL: http://localhost:8000
+      REACT_APP_WS_URL: ws://localhost:8000/ws
+    networks:
+      - evil2root-network
+
+  # PgAdmin (Database Management)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: evil2root-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@evil2root.local
+      PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin_default_password
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    secrets:
+      - pgadmin_default_password
+    networks:
+      - evil2root-network
+
+  # Reverse Proxy (Nginx)
+  nginx:
+    image: nginx:alpine
+    container_name: evil2root-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - trading-app
+      - frontend
+    networks:
+      - evil2root-network
+
+# Docker Secrets Configuration
+secrets:
+  postgres_user:
+    file: ./secrets/postgres_user.txt
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  postgres_db:
+    file: ./secrets/postgres_db.txt
+  pgadmin_default_password:
+    file: ./secrets/pgadmin_default_password.txt
+  db_user:
+    file: ./secrets/db_user.txt
+  db_password:
+    file: ./secrets/db_password.txt
+  secret_key:
+    file: ./secrets/secret_key.txt
+  telegram_token:
+    file: ./secrets/telegram_token.txt
+  finnhub_api_key:
+    file: ./secrets/finnhub_api_key.txt
+  openrouter_api_key:
+    file: ./secrets/openrouter_api_key.txt
+  coinbase_api_key:
+    file: ./secrets/coinbase_api_key.txt
+  coinbase_webhook_secret:
+    file: ./secrets/coinbase_webhook_secret.txt
+
+# Persistent Volumes
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+
+# Networks
+networks:
+  evil2root-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
