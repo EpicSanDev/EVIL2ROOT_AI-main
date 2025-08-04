@@ -17,8 +17,12 @@ def register_filters(app):
     def format_currency(value):
         """Format a value as currency, handling strings or numbers."""
         if isinstance(value, str):
-            # Remove any existing currency symbols and commas
-            value = re.sub(r'[^\d.]', '', value)
+            # Remove any existing currency symbols and commas but preserve sign
+            # Negative values were previously converted to positive because the
+            # regex stripped the ``-`` character. This caused misformatted
+            # currency values like "-$100" to be displayed as "$100".
+            # Allow an optional leading minus sign when cleaning the string.
+            value = re.sub(r'[^\d.\-]', '', value)
             try:
                 value = float(value)
             except ValueError:
