@@ -31,14 +31,14 @@ pytest-cov>=4.1.0
 python-telegram-bot>=20.0.0
 asyncio>=3.4.0
 schedule>=1.2.0
-protobuf>=3.20.0,<4.0.0  # Version compatible avec tensorflow 
+protobuf>=3.20.0,<7.0.0  # Version compatible avec tensorflow 
 tweepy>=4.12.0  # Pour l'analyse de sentiment Twitter
 
 # AI/ML Dependencies
 tensorflow>=2.10.0,<2.19.0
 keras>=2.10.0
 pytorch-lightning>=2.0.0
-torch>=1.13.0,<2.7.0  # Version compatible avec optimum, stable-baselines3 et fastai
+torch>=1.13.0,<2.8.0  # Version compatible avec optimum, stable-baselines3 et fastai
 torchvision>=0.14.0,<0.16.0
 transformers>=4.29.0
 xgboost>=1.7.0
@@ -113,7 +113,7 @@ fastai>=2.7.0
 # Dépendances principales
 fastapi==0.98.0
 pydantic==1.10.13
-starlette==0.40.0
+starlette==0.47.2
 uvicorn==0.22.0
 python-multipart==0.0.18
 python-dotenv==1.0.0
@@ -135,7 +135,7 @@ PyJWT==2.8.0
 httpx==0.24.1
 aiofiles==23.2.1
 python-dateutil==2.8.2
-requests==2.31.0
+requests==2.32.4
 cachetools==5.3.2
 tenacity==8.2.2
 
